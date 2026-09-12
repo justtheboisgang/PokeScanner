@@ -1,0 +1,30 @@
+# Docker Compose for a small VPS (§3). Phase 1: Postgres + an app container that
+# applies migrations and then idles (no web server / scheduler yet — Phase 2).
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: poke
+      POSTGRES_PASSWORD: poke
+      POSTGRES_DB: pokescanner
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U poke -d pokescanner"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  app:
+    build: .
+    env_file: .env
+    depends_on:
+      db:
+        condition: service_healthy
+    # Apply migrations, then stay up for `docker compose exec app ...`.
+    command: sh -c "alembic upgrade head && tail -f /dev/null"
+
+volumes:
+  pgdata:

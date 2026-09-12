@@ -1,0 +1,125 @@
+# Suchbegriff-Taxonomie (§7).
+#
+# Echte Formulierungen von Leuten, die NICHT wissen, was sie haben. Der Werthebel
+# liegt genau hier. Frei editierbar — kein Code-Deploy nötig, der Loader liest
+# diese Datei zur Laufzeit.
+#
+# `positive`: Suchbegriffe, die einen Kandidaten qualifizieren.
+# `negative`: Begriffe, die ein Listing AUSSCHLIESSEN (Sammelalben, Repro, Bulk).
+#
+# Startliste (~60). Bitte anpassen/erweitern, sobald du siehst, was Flow bringt.
+
+positive:
+  # Dachboden / Keller / Nachlass
+  - "alte pokemon karten"
+  - "alte pokemon sammlung"
+  - "pokemon karten dachboden"
+  - "pokemon karten keller gefunden"
+  - "pokemon karten nachlass"
+  - "pokemon karten haushaltsauflösung"
+  - "pokemon sammlung auflösung"
+  - "pokemon karten vom dachboden"
+  - "pokemon karten alte sammlung dachboden"
+  - "pokemon karten aus dem keller"
+
+  # Kindheit / früher
+  - "pokemon karten kindheit"
+  - "pokemon karten von früher"
+  - "pokemon karten aus kindheit"
+  - "meine alten pokemon karten"
+  - "pokemon karten sohn kindheit"
+  - "pokemon karten aus jugend"
+  - "pokemon karten 90er"
+  - "pokemon karten 2000er"
+  - "pokemon karten erste generation"
+  - "pokemon karten erste edition"
+
+  # Konvolute / Lots / Sammlungen
+  - "pokemon karten konvolut"
+  - "pokemon karten sammlung konvolut"
+  - "pokemon karten lot"
+  - "pokemon karten sammlung groß"
+  - "pokemon karten große sammlung"
+  - "pokemon karten paket"
+  - "pokemon karten menge"
+  - "pokemon karten viele"
+  - "pokemon karten sammelmappe voll"
+  - "pokemon karten ordner alt"
+
+  # Unwissenheit / "keine ahnung"
+  - "pokemon karten keine ahnung wert"
+  - "pokemon karten weiß nicht was wert"
+  - "pokemon karten wert unbekannt"
+  - "pokemon karten müssen weg"
+  - "pokemon karten schnell weg"
+  - "pokemon karten günstig abzugeben"
+  - "pokemon karten zu verschenken"
+  - "pokemon karten aufräumen"
+  - "pokemon karten entrümpelung"
+
+  # Vintage-spezifische Formulierungen
+  - "pokemon karten holo alt"
+  - "pokemon karten glänzend alt"
+  - "pokemon karten glurak alt"
+  - "pokemon karten turtok alt"
+  - "pokemon karten bisaflor alt"
+  - "pokemon karten base set"
+  - "pokemon karten neo"
+  - "pokemon karten ex serie"
+  - "pokemon karten lv x"
+  - "pokemon karten legend"
+  - "pokemon karten e-serie"
+  - "pokemon karten crystal"
+  - "pokemon karten first edition deutsch"
+
+  # Englischsprachige Duplikate (Kartensprache egal, Markt DE)
+  - "old pokemon cards collection"
+  - "pokemon cards attic"
+  - "pokemon cards childhood"
+  - "pokemon cards lot vintage"
+  - "pokemon cards base set"
+
+  # Generisch / breit (R4: großzügig alarmieren)
+  - "pokemon karten sammlung"
+  - "pokemon sammlung"
+  - "pokemon karten alt selten"
+  - "pokemon karten rar"
+
+negative:
+  # Repro / Fälschung / Fake
+  - "repro"
+  - "reproduktion"
+  - "fake"
+  - "fälschung"
+  - "custom"
+  - "proxy"
+  - "nachdruck"
+  - "selfmade"
+  - "self made"
+  - "orica"
+
+  # Moderne Bulk-Lots / Wühlkisten ohne Vintage-Edge
+  - "display neu"
+  - "booster box neu"
+  - "sammelalbum leer"
+  - "leeres album"
+  - "nur album"
+  - "sleeves"
+  - "hüllen"
+  - "toploader"
+  - "sortierbox leer"
+
+  # Nicht-Karten / Merch
+  - "plüsch"
+  - "figur"
+  - "spielzeug"
+  - "tazo"
+  - "sticker album"
+  - "poster"
+
+  # Graded / Slabs (in V1 ausgeschlossen, §10)
+  - "psa"
+  - "bgs"
+  - "cgc"
+  - "graded"
+  - "slab"

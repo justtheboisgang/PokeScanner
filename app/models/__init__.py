@@ -18,6 +18,7 @@ from app.models.listing import Listing
 from app.models.purchase import Purchase, Sale
 from app.models.reference_comp import ReferenceComp
 from app.models.reference_value import ReferenceValue
+from app.models.usage_event import UsageEvent
 
 __all__ = [
     "Candidate",
@@ -30,6 +31,7 @@ __all__ = [
     "Sale",
     "ReferenceComp",
     "ReferenceValue",
+    "UsageEvent",
     "Channel",
     "Condition",
     "CounterfeitCheck",

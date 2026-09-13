@@ -22,6 +22,9 @@ export const api = {
       body: JSON.stringify(body),
     }),
   listJournal: () => request(`/journal`),
+  listInventory: () => request(`/inventory`),
+  getCalibration: () => request(`/calibration`),
+  getCosts: () => request(`/costs`),
 };
 
 export function formatEuro(value, currency = "EUR") {

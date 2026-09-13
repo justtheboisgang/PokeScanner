@@ -100,6 +100,18 @@ class Settings(BaseSettings):
     )
     ebay_browse_limit: int = Field(default=50, alias="EBAY_BROWSE_LIMIT")
 
+    # --- Cost estimates per call (§9 Kosten) — EUR, default 0 (= nur Verbrauch,
+    #     keine erfundene Kostenzahl, R3). Setzen, sobald echte Zahlen bekannt. ---
+    cost_apify_per_run_eur: Decimal = Field(
+        default=Decimal("0"), alias="COST_APIFY_PER_RUN_EUR"
+    )
+    cost_ebay_per_call_eur: Decimal = Field(
+        default=Decimal("0"), alias="COST_EBAY_PER_CALL_EUR"
+    )
+    cost_vision_per_call_eur: Decimal = Field(
+        default=Decimal("0"), alias="COST_VISION_PER_CALL_EUR"
+    )
+
     # --- Cross-channel dedup (§5) ---
     dedup_image_hash_enabled: bool = Field(
         default=True, alias="DEDUP_IMAGE_HASH_ENABLED"

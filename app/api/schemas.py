@@ -125,6 +125,47 @@ class CandidateDetail(BaseModel):
     enrichment: EnrichmentOut | None
 
 
+class InventoryItem(BaseModel):
+    purchase_id: int
+    title: str
+    channel: Channel
+    seller_name: str
+    purchase_price: Decimal
+    purchase_date: date
+    days_in_stock: int
+    # Exit-Regel-Ampel (§7): green <45, amber 45-89 (repricen), red >=90 (abstoßen).
+    exit_status: str
+    exit_hint: str
+
+
+class CostLine(BaseModel):
+    source: str
+    calls: int
+    unit_cost_eur: Decimal
+    est_cost_eur: Decimal
+
+
+class CostsSummary(BaseModel):
+    usage: list[CostLine]
+    total_est_cost_eur: Decimal
+    funds: int
+    cost_per_fund_eur: Decimal | None
+    costs_configured: bool
+
+
+class CalibrationSummary(BaseModel):
+    total_candidates: int
+    alerts_per_channel: dict[str, int]
+    unbewertbar_rate: float | None
+    decisions: dict[str, int]
+    decided_count: int
+    decision_rate: float | None
+    avg_seconds_to_decision: float | None
+    closed_deals: int
+    avg_forecast_error_eur: float | None
+    avg_abs_forecast_error_eur: float | None
+
+
 class JournalItem(BaseModel):
     purchase_id: int
     purchase_price: Decimal

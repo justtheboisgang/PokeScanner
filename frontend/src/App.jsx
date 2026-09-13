@@ -2,6 +2,9 @@ import { NavLink, Route, Routes } from "react-router-dom";
 import LiveFeed from "./pages/LiveFeed.jsx";
 import CandidateDetail from "./pages/CandidateDetail.jsx";
 import Journal from "./pages/Journal.jsx";
+import Inventory from "./pages/Inventory.jsx";
+import Calibration from "./pages/Calibration.jsx";
+import Costs from "./pages/Costs.jsx";
 
 function NavItem({ to, children }) {
   return (
@@ -31,7 +34,10 @@ export default function App() {
           </span>
           <nav className="flex gap-1">
             <NavItem to="/">Live Feed</NavItem>
+            <NavItem to="/inventory">Inventar</NavItem>
             <NavItem to="/journal">Journal</NavItem>
+            <NavItem to="/calibration">Kalibrierung</NavItem>
+            <NavItem to="/costs">Kosten</NavItem>
           </nav>
           <span className="ml-auto text-xs text-slate-500">
             V1 · Messinstrument
@@ -43,7 +49,10 @@ export default function App() {
         <Routes>
           <Route path="/" element={<LiveFeed />} />
           <Route path="/candidates/:id" element={<CandidateDetail />} />
+          <Route path="/inventory" element={<Inventory />} />
           <Route path="/journal" element={<Journal />} />
+          <Route path="/calibration" element={<Calibration />} />
+          <Route path="/costs" element={<Costs />} />
         </Routes>
       </main>
     </div>

@@ -7,6 +7,21 @@ Bewertung gegen echte Verkaufsdaten und Alarmierung.
 > um Fundfrequenz pro Kanal und Time-to-Contact zu messen. Kaufentscheidungen
 > triffst du manuell.
 
+## Status: §9-Restansichten (Inventar, Kalibrierung, Kosten)
+
+Die in Phase 3 zurückgestellten Website-Views (§9) sind ergänzt:
+
+- **Inventar** (`GET /api/inventory`): offene Positionen (Kauf ohne Verkauf),
+  Tage im Bestand, Exit-Regel-**Ampel** (§7: grün <45, gelb ≥45 → 25. Perzentil
+  repricen, rot ≥90 → zum Gebot abstoßen).
+- **Kalibrierung** (`GET /api/calibration`): Alarme pro Kanal, Trefferquote,
+  „unbewertbar"-Rate, Ø Zeit vom Alarm bis Entscheidung, Ø Prognosefehler.
+- **Kosten** (`GET /api/costs`): **echter** API-Verbrauch pro Quelle
+  (`usage_event`-Tabelle, Migration 0005, pro Poll geschrieben) + geschätzte
+  Kosten aus **konfigurierbaren** Stück-Kosten (`COST_*`, Default 0 → keine
+  erfundenen Zahlen, R3). Kosten/Fund nur bei gesetzten Stück-Kosten.
+- Frontend: drei neue dunkle Views + Navigation. 92 Tests.
+
 ## Status: Phase 5 (Weitere Kanäle)
 
 Mehrkanal-Ingestion mit geteiltem Alarm-/Anreicherungs-Pfad und Cross-Channel-Dedup.

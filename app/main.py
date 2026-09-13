@@ -10,7 +10,7 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import candidates, journal
+from app.api import analytics, candidates, journal
 
 
 def create_app() -> FastAPI:
@@ -30,6 +30,7 @@ def create_app() -> FastAPI:
 
     app.include_router(candidates.router)
     app.include_router(journal.router)
+    app.include_router(analytics.router)
     return app
 
 

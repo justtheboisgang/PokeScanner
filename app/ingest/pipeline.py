@@ -30,6 +30,7 @@ from app.ingest.sources import Source, build_sources
 from app.models.candidate import Candidate
 from app.models.enums import Channel
 from app.models.listing import Listing
+from app.models.usage_event import UsageEvent
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +54,7 @@ class PollStats:
     vision_calls: int = 0
     errors: int = 0
     per_term_new: dict[str, int] = field(default_factory=dict)
+    per_source_queries: dict[str, int] = field(default_factory=dict)
 
 
 class IngestionPipeline:
@@ -95,12 +97,30 @@ class IngestionPipeline:
             return stats
         for source in self.sources:
             self._poll_source(source, stats)
+        self._record_usage(stats)
         logger.info("poll done: %s", stats)
         return stats
+
+    def _record_usage(self, stats: PollStats) -> None:
+        """Persist real call counts per source for the Kosten view (§9)."""
+        rows = dict(stats.per_source_queries)
+        if stats.vision_calls:
+            rows["vision"] = stats.vision_calls
+        if not rows:
+            return
+        try:
+            with self.session_factory() as session:
+                for source, calls in rows.items():
+                    session.add(UsageEvent(source=source, calls=calls))
+        except Exception:
+            logger.exception("failed to record usage")
 
     def _poll_source(self, source: Source, stats: PollStats) -> None:
         for term in self.search_terms.active:
             stats.queries += 1
+            stats.per_source_queries[source.name] = (
+                stats.per_source_queries.get(source.name, 0) + 1
+            )
             try:
                 listings = source.fetch(term)
             except QuotaExceededError:

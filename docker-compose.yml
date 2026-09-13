@@ -1,5 +1,5 @@
-# Docker Compose for a small VPS (§3). Phase 1: Postgres + an app container that
-# applies migrations and then idles (no web server / scheduler yet — Phase 2).
+# Docker Compose for a small VPS (§3). Phase 2: Postgres + an app container that
+# applies migrations and then runs the APScheduler poll worker (no web server yet).
 services:
   db:
     image: postgres:16-alpine
@@ -23,8 +23,9 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    # Apply migrations, then stay up for `docker compose exec app ...`.
-    command: sh -c "alembic upgrade head && tail -f /dev/null"
+    # Apply migrations, then run the scheduler poll worker.
+    command: sh -c "alembic upgrade head && python -m app.scheduler"
+    restart: unless-stopped
 
 volumes:
   pgdata:

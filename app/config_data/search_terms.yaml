@@ -8,6 +8,20 @@
 # `negative`: Begriffe, die ein Listing AUSSCHLIESSEN (Sammelalben, Repro, Bulk).
 #
 # Startliste (~60). Bitte anpassen/erweitern, sobald du siehst, was Flow bringt.
+#
+# `active`: die kuratierte Teilmenge (~8), die pro Poll tatsächlich bei Apify
+# abgefragt wird (§4.4, Kostenkontrolle). Breit gewählt, um über Breite viel
+# abzudecken. Nach ~2 Wochen datenbasiert rotieren (Funde je matched_search_term).
+
+active:
+  - "alte pokemon karten"
+  - "pokemon sammlung"
+  - "pokemon karten konvolut"
+  - "pokemon karten dachboden"
+  - "pokemon karten nachlass"
+  - "pokemon karten kindheit"
+  - "pokemon karten sammlung groß"
+  - "pokemon karten base set"
 
 positive:
   # Dachboden / Keller / Nachlass

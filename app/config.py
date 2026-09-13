@@ -73,7 +73,37 @@ class Settings(BaseSettings):
         default=Decimal("15"), alias="SINGLE_CARD_LOOKUP_THRESHOLD_EUR"
     )
 
-    # --- Discord (Phase 2) ---
+    # --- Apify (Kleinanzeigen, §4.4) ---
+    apify_token: str = Field(default="", alias="APIFY_TOKEN")
+    apify_base_url: str = Field(default="https://api.apify.com/v2", alias="APIFY_BASE_URL")
+    apify_kleinanzeigen_actor: str = Field(
+        default="", alias="APIFY_KLEINANZEIGEN_ACTOR"
+    )
+    # Cap items per query to bound Apify cost (Plan-Guthaben + Actor-Gebühren).
+    apify_max_items_per_query: int = Field(
+        default=40, alias="APIFY_MAX_ITEMS_PER_QUERY"
+    )
+
+    # --- Alarm gate (Phase 2, §7) ---
+    # No absolute price ceiling by default (R4). Set to enable one.
+    alert_price_ceiling_eur: Decimal | None = Field(
+        default=None, alias="ALERT_PRICE_CEILING_EUR"
+    )
+    # Listings without a price still fire ("VB"/leer ist bei Konvoluten Normalfall).
+    alert_require_price: bool = Field(default=False, alias="ALERT_REQUIRE_PRICE")
+
+    # --- Poll schedule (staggered, §11) ---
+    scheduler_timezone: str = Field(default="Europe/Berlin", alias="SCHEDULER_TIMEZONE")
+    poll_day_interval_minutes: int = Field(
+        default=15, alias="POLL_DAY_INTERVAL_MINUTES"
+    )
+    poll_night_interval_minutes: int = Field(
+        default=60, alias="POLL_NIGHT_INTERVAL_MINUTES"
+    )
+    poll_day_start_hour: int = Field(default=8, alias="POLL_DAY_START_HOUR")
+    poll_day_end_hour: int = Field(default=23, alias="POLL_DAY_END_HOUR")
+
+    # --- Discord (§8) ---
     discord_webhook_url: str = Field(default="", alias="DISCORD_WEBHOOK_URL")
 
 

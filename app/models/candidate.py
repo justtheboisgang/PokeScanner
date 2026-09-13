@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import DateTime, ForeignKey, Numeric, Text, func
+from sqlalchemy import DateTime, ForeignKey, Numeric, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -30,7 +30,12 @@ class Candidate(Base):
     # NULL when unbewertbar (Stufe 5).
     estimated_profit: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
     alert_reason: Mapped[str | None] = mapped_column(Text)
+    # The taxonomy term that triggered this candidate — enables data-driven
+    # rotation of the active query subset (§4.4 calibration).
+    matched_search_term: Mapped[str | None] = mapped_column(String(255), index=True)
     alert_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Discord message id, so later enrichment can EDIT the embed (R1, §8).
+    discord_message_id: Mapped[str | None] = mapped_column(String(64))
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()

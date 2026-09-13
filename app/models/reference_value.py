@@ -53,3 +53,6 @@ class ReferenceValue(Base):
     variant: Mapped["Variant"] = relationship(  # noqa: F821
         back_populates="reference_values"
     )
+    comps: Mapped[list["ReferenceComp"]] = relationship(  # noqa: F821
+        back_populates="reference_value", cascade="all, delete-orphan"
+    )

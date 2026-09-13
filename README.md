@@ -7,6 +7,31 @@ Bewertung gegen echte Verkaufsdaten und Alarmierung.
 > um Fundfrequenz pro Kanal und Time-to-Contact zu messen. Kaufentscheidungen
 > triffst du manuell.
 
+## Status: Phase 3 (Website)
+
+Review, Journal und Decision-Erfassung (§9, §11). Dunkles, aufgeräumtes UI.
+
+- **Backend-API** (`app/api/`, `app/main.py`): FastAPI mit
+  - `GET /api/candidates` (Live Feed, neueste zuerst, `undecided_only`),
+  - `GET /api/candidates/{id}` (Detail inkl. **einzeln aufgelisteter Comps**),
+  - `PUT /api/candidates/{id}/decision` (Buy/Skip/Unclear + Fälschungsprüfung,
+    `seconds_since_alert` wird berechnet),
+  - `GET /api/journal` (abgeschlossene Deals, Prognose vs. Ergebnis).
+- **Comp-Persistenz** (`reference_comp`, Migration 0003): löst den §9↔§5-Punkt —
+  jeder Comp hinter einem Referenzwert wird gespeichert und ist im Detail
+  nachprüfbar. Ask-Listings werden **nie** als Verkäufe gezählt.
+- **Frontend** (`frontend/`, React + Vite + Tailwind, dunkles Theme): Live Feed
+  (Bild, Preis, Gewinn/„unbewertbar", Kaskadenstufe), Kandidaten-Detail (alle
+  Bilder groß, volle Beschreibung, Comps-Tabelle, Buy/Skip/Unclear mit
+  Pflicht-Fälschungsprüfung und Grund), Journal.
+- **Portable Model-Typen**: `JSONB`/`ARRAY` mit Variant → auf SQLite `JSON`, damit
+  die API ohne Postgres integrationsgetestet werden kann (Migrationen bleiben
+  Postgres-nativ). 58 Tests, inkl. API-Integrationstests.
+
+**Noch nicht** (§9-Views außerhalb des Phase-3-Umfangs, bewusst): Inventar
+(Bestandstage/Exit-Ampel), Kalibrierung (Trefferquote, Time-to-Decision,
+Prognosefehler), Kosten (API-Verbrauch je Quelle). Diese folgen nach Review.
+
 ## Status: Phase 2 (Ein Kanal — Kleinanzeigen)
 
 Ab hier **läuft und misst** das System (§11). Geliefert in Phase 2:
@@ -97,12 +122,29 @@ pip install -e ".[dev]"
 pytest
 ```
 
-## Offene Punkte für Phase-2-Review
+### Frontend (React + Tailwind)
 
-- **§9 vs. §5:** Die Website soll jeden Comp einzeln anzeigen, das §5-Datenmodell
-  hat aber keine Comp-Tabelle. Persistenz einzelner Comps ist für Phase 3
-  (Website) nachzuziehen. In Phase 1 trägt das Kaskadenergebnis die Comps
-  in-memory (`ReferenceResult.comps`).
+```bash
+cd frontend
+npm install
+npm run dev      # Vite dev-Server auf :5173, proxyt /api -> :8000
+# oder für Produktion:
+npm run build    # statisches Bundle in frontend/dist/
+```
+
+Backend-API lokal starten:
+
+```bash
+uvicorn app.main:app --reload   # :8000
+```
+
+Mit Docker läuft alles zusammen (`db` + `migrate` + `api` + `worker`) via
+`docker compose up`; das Frontend wird separat gebaut/ausgeliefert.
+
+## Offene Punkte
+
+- **§9 vs. §5:** ✅ gelöst in Phase 3 — `reference_comp`-Tabelle (Migration 0003)
+  speichert jeden Comp einzeln; das Kandidaten-Detail listet sie auf.
 - **Sprach-Bucketing der Sold-Comps** (§4.2 „erst ohne Filter, dann nachschärfen"
   vs. §6 „Sprache passend"): Die adaptive Policy ist bewusst NICHT im Orchestrator
   verdrahtet; der Aufrufer übergibt die Aspect-Filter. Festzulegen, wenn Phase 2

@@ -41,6 +41,10 @@ class Candidate(Base):
         DateTime(timezone=True), server_default=func.now()
     )
 
+    listing: Mapped["Listing"] = relationship("Listing")  # noqa: F821
+    reference_value: Mapped["ReferenceValue | None"] = relationship(  # noqa: F821
+        "ReferenceValue"
+    )
     decision: Mapped["Decision | None"] = relationship(  # noqa: F821
         back_populates="candidate", uselist=False, cascade="all, delete-orphan"
     )

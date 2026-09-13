@@ -10,9 +10,14 @@ from __future__ import annotations
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import DateTime, Numeric, String, Text, UniqueConstraint, func
+from sqlalchemy import JSON, DateTime, Numeric, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
+
+# Postgres gets ARRAY/JSONB; other backends (e.g. SQLite in tests) fall back to
+# JSON. The migrations remain Postgres-native (ARRAY/JSONB).
+_ImageList = JSON().with_variant(ARRAY(Text), "postgresql")
+_RawPayload = JSON().with_variant(JSONB, "postgresql")
 
 from app.db import Base
 from app.models.enums import Channel, SellerType
@@ -36,7 +41,7 @@ class Listing(Base):
         enum_type(SellerType, "sellertype"), default=SellerType.UNKNOWN
     )
 
-    images: Mapped[list[str]] = mapped_column(ARRAY(Text), default=list)
+    images: Mapped[list[str]] = mapped_column(_ImageList, default=list)
     # Heuristic dedup key across channels (Phase 2). People cross-post.
     image_hash: Mapped[str | None] = mapped_column(String(64), index=True)
 
@@ -49,7 +54,7 @@ class Listing(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
 
-    raw_payload: Mapped[dict] = mapped_column(JSONB, default=dict)
+    raw_payload: Mapped[dict] = mapped_column(_RawPayload, default=dict)
 
     __table_args__ = (
         UniqueConstraint("channel", "external_id", name="uq_listing_channel_external"),

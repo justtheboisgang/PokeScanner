@@ -35,6 +35,7 @@ class Purchase(Base):
     shipping_cost: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"))
     currency: Mapped[str] = mapped_column(String(3), default="EUR")
 
+    candidate: Mapped["Candidate | None"] = relationship("Candidate")  # noqa: F821
     sale: Mapped["Sale | None"] = relationship(
         back_populates="purchase", uselist=False, cascade="all, delete-orphan"
     )

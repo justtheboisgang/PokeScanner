@@ -28,3 +28,8 @@ htmlcov/
 
 # Local DB volumes
 pgdata/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+node_modules/

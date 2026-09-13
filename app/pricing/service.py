@@ -17,6 +17,7 @@ from app.clients.soldcomps import SoldCompsClient
 from app.clients.tcgdex import CardmarketPricing, TCGdexClient
 from app.models.card import Card, Variant
 from app.models.enums import Language
+from app.models.reference_comp import ReferenceComp
 from app.models.reference_value import ReferenceValue
 from app.pricing.adapters import sold_items_to_comps
 from app.pricing.cascade import (
@@ -109,10 +110,10 @@ class ReferenceValueCascade:
 def persist_reference_value(
     session, variant_id: int, result: ReferenceResult
 ) -> ReferenceValue | None:
-    """Persist a valuable result (Stufe 1-4). Stufe 5 (unbewertbar) stores nothing.
+    """Persist a valuable result (Stufe 1-4) and its comps. Stufe 5 stores nothing.
 
-    Note: individual comps are NOT persisted here — the §5 data model has no comp
-    table. §9's per-comp display is flagged for Phase 3.
+    Each comp is stored individually so the website can show every data point
+    behind the reference value (§9).
     """
     if not result.is_valuable or result.source is None:
         return None
@@ -125,5 +126,18 @@ def persist_reference_value(
         sample_size=result.sample_size,
         is_weak=result.is_weak,
     )
+    rv.comps = [
+        ReferenceComp(
+            price=c.price,
+            currency=c.currency,
+            sold_at=c.sold_at,
+            language=c.language,
+            condition=c.condition,
+            boa_hydrated=c.boa_hydrated,
+            epid=c.epid,
+            source_item_id=c.source_item_id,
+        )
+        for c in result.comps
+    ]
     session.add(rv)
     return rv

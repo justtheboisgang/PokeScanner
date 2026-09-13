@@ -18,6 +18,8 @@ def main() -> None:
         level=logging.INFO,
         format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
     )
+    # Don't log request URLs (they can carry tokens/query params).
+    logging.getLogger("httpx").setLevel(logging.WARNING)
     stats = build_pipeline().poll()
     print("\n=== Poll-Ergebnis ===")
     print(f"Quellen-Abfragen : {stats.queries}")

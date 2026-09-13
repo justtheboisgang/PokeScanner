@@ -28,8 +28,13 @@ class ApifyClient:
         settings = get_settings()
         self.token = token if token is not None else settings.apify_token
         self.base_url = (base_url or settings.apify_base_url).rstrip("/")
+        # Token goes in the Authorization header, not the query string, so it
+        # never lands in request logs.
         self._client = httpx.Client(
-            base_url=self.base_url, transport=transport, timeout=timeout
+            base_url=self.base_url,
+            transport=transport,
+            timeout=timeout,
+            headers={"Authorization": f"Bearer {self.token}"} if self.token else {},
         )
 
     def __enter__(self) -> "ApifyClient":
@@ -45,7 +50,7 @@ class ApifyClient:
         self, actor_id: str, run_input: dict, *, max_items: int | None = None
     ) -> list[dict]:
         """Run an actor and return dataset items (run-sync-get-dataset-items)."""
-        params: dict[str, object] = {"token": self.token}
+        params: dict[str, object] = {}
         if max_items is not None:
             params["maxItems"] = max_items
 

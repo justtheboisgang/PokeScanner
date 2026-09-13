@@ -52,6 +52,7 @@ def run() -> None:
         level=logging.INFO,
         format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
     )
+    logging.getLogger("httpx").setLevel(logging.WARNING)
     settings = get_settings()
     tz = ZoneInfo(settings.scheduler_timezone)
 

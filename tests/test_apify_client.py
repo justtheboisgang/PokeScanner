@@ -23,7 +23,8 @@ def test_returns_dataset_items_and_sends_input_and_max_items():
     def handler(request: httpx.Request) -> httpx.Response:
         seen["path"] = request.url.path
         seen["maxItems"] = request.url.params.get("maxItems")
-        seen["token"] = request.url.params.get("token")
+        seen["auth"] = request.headers.get("Authorization")
+        seen["token_in_url"] = request.url.params.get("token")
         seen["body"] = request.read().decode()
         return httpx.Response(200, json=[{"adId": "1"}, {"adId": "2"}])
 
@@ -33,7 +34,9 @@ def test_returns_dataset_items_and_sends_input_and_max_items():
     assert [i["adId"] for i in items] == ["1", "2"]
     assert seen["path"].endswith("/acts/user~actor/run-sync-get-dataset-items")
     assert seen["maxItems"] == "40"
-    assert seen["token"] == "apify_test"
+    # Token travels in the header, never the URL.
+    assert seen["auth"] == "Bearer apify_test"
+    assert seen["token_in_url"] is None
     assert "alte pokemon karten" in seen["body"]
 
 

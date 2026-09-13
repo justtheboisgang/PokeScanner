@@ -119,6 +119,11 @@ class Settings(BaseSettings):
     dedup_price_tolerance_eur: Decimal = Field(
         default=Decimal("5"), alias="DEDUP_PRICE_TOLERANCE_EUR"
     )
+    # aHash Hamming distance tolerance for near-duplicate (re-encoded) images.
+    # 0 = exact match only (fast SQL path). >0 scans recent hashes app-side.
+    dedup_hamming_threshold: int = Field(default=0, alias="DEDUP_HAMMING_THRESHOLD")
+    # Max recent hashed listings to scan when Hamming tolerance is on.
+    dedup_hamming_lookback: int = Field(default=500, alias="DEDUP_HAMMING_LOOKBACK")
 
     # --- Alarm gate (Phase 2, §7) ---
     # No absolute price ceiling by default (R4). Set to enable one.
@@ -155,8 +160,17 @@ class Settings(BaseSettings):
         default=4, alias="ENRICH_VISION_MAX_IMAGES"
     )
 
+    # --- Web API ---
+    # Comma-separated allowed origins for CORS. "*" is dev-only; set your real
+    # frontend origin(s) in production.
+    cors_allow_origins: str = Field(default="*", alias="CORS_ALLOW_ORIGINS")
+
     # --- Discord (§8) ---
     discord_webhook_url: str = Field(default="", alias="DISCORD_WEBHOOK_URL")
+
+    @property
+    def cors_origins_list(self) -> list[str]:
+        return [o.strip() for o in self.cors_allow_origins.split(",") if o.strip()]
 
 
 @lru_cache

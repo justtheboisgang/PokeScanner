@@ -129,3 +129,44 @@ def test_find_duplicate_none_when_hash_differs(db):
         price_tolerance=Decimal("5"),
     )
     assert dup is None
+
+
+def test_find_duplicate_hamming_tolerance_matches_near_hash(db):
+    # Stored hash and query hash differ by 1 bit (…e vs …f).
+    a = _listing_with_candidate(db, Channel.WILLHABEN, "w4", "aaaabbbbccccddde", 60)
+
+    # Exact match (threshold 0) does not catch the 1-bit difference.
+    assert (
+        find_duplicate_listing(
+            db,
+            image_hash="aaaabbbbccccdddf",
+            price=Decimal("61"),
+            exclude_listing_id=999,
+            price_tolerance=Decimal("5"),
+        )
+        is None
+    )
+    # With Hamming tolerance >=1 it matches.
+    dup = find_duplicate_listing(
+        db,
+        image_hash="aaaabbbbccccdddf",
+        price=Decimal("61"),
+        exclude_listing_id=999,
+        price_tolerance=Decimal("5"),
+        hamming_threshold=2,
+    )
+    assert dup is not None
+    assert dup.id == a.id
+
+
+def test_find_duplicate_hamming_still_respects_price(db):
+    _listing_with_candidate(db, Channel.WILLHABEN, "w5", "aaaabbbbccccddde", 60)
+    dup = find_duplicate_listing(
+        db,
+        image_hash="aaaabbbbccccdddf",
+        price=Decimal("500"),  # outside tolerance
+        exclude_listing_id=999,
+        price_tolerance=Decimal("5"),
+        hamming_threshold=2,
+    )
+    assert dup is None

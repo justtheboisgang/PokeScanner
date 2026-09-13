@@ -11,15 +11,16 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import analytics, candidates, journal
+from app.config import get_settings
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="PokeScanner", version="0.3.0")
+    app = FastAPI(title="PokeScanner", version="0.4.0")
 
-    # Dev convenience: allow the Vite dev server. Tighten for production.
+    # CORS origins from config ("*" for dev; set CORS_ALLOW_ORIGINS in prod).
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=get_settings().cors_origins_list,
         allow_methods=["*"],
         allow_headers=["*"],
     )

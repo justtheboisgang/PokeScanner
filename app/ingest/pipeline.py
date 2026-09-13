@@ -182,6 +182,8 @@ class IngestionPipeline:
                     price=normalized.price,
                     exclude_listing_id=listing_id,
                     price_tolerance=self.settings.dedup_price_tolerance_eur,
+                    hamming_threshold=self.settings.dedup_hamming_threshold,
+                    hamming_lookback=self.settings.dedup_hamming_lookback,
                 )
                 if duplicate is not None:
                     stats.deduped += 1

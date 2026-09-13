@@ -203,9 +203,10 @@ Mit Docker läuft alles zusammen (`db` + `migrate` + `api` + `worker`) via
 
 - **§9 vs. §5:** ✅ gelöst in Phase 3 — `reference_comp`-Tabelle (Migration 0003)
   speichert jeden Comp einzeln; das Kandidaten-Detail listet sie auf.
-- **Cross-Channel-Dedup:** ✅ in Phase 5 — aHash + Preis-Toleranz, nur für
-  alarmierende Kandidaten (bounded). Exakter aHash-Match; Hamming-Toleranz für
-  re-enkodierte Bilder ist ein möglicher späterer Feinschliff.
+- **Cross-Channel-Dedup:** ✅ aHash + Preis-Toleranz, nur für alarmierende
+  Kandidaten (bounded). Optionale **Hamming-Toleranz** (`DEDUP_HAMMING_THRESHOLD`,
+  Default 0 = exakt) für re-enkodierte Bilder.
+- **CORS:** ✅ konfigurierbar (`CORS_ALLOW_ORIGINS`); `*` nur als Dev-Default.
 - **Sprach-Bucketing der Sold-Comps** (§4.2 „erst ohne Filter, dann nachschärfen"
   vs. §6 „Sprache passend"): Die adaptive Policy ist bewusst NICHT im Orchestrator
   verdrahtet; der Aufrufer übergibt die Aspect-Filter. Festzulegen, wenn Phase 2

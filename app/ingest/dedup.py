@@ -72,6 +72,12 @@ class ImageHasher:
             return None
 
 
+def _price_matches(a: Decimal | None, b: Decimal | None, tolerance: Decimal) -> bool:
+    if a is None or b is None:
+        return a is None and b is None
+    return abs(Decimal(a) - Decimal(b)) <= tolerance
+
+
 def find_duplicate_listing(
     session: Session,
     *,
@@ -79,25 +85,43 @@ def find_duplicate_listing(
     price: Decimal | None,
     exclude_listing_id: int,
     price_tolerance: Decimal,
+    hamming_threshold: int = 0,
+    hamming_lookback: int = 500,
 ) -> Listing | None:
     """Return an already-alerted listing that matches this one, else None.
 
-    Match = identical aHash AND (both prices missing, or within tolerance). Only
-    listings that already produced a candidate count (we dedup against alerts).
+    Match = aHash within `hamming_threshold` (0 = identical) AND prices within
+    tolerance. Only listings that already produced a candidate count (we dedup
+    against alerts). With threshold 0 an indexed equality query is used; with a
+    tolerance the most recent hashed listings are scanned app-side.
     """
+    if hamming_threshold <= 0:
+        stmt = (
+            select(Listing)
+            .join(Candidate, Candidate.listing_id == Listing.id)
+            .where(
+                Listing.image_hash == image_hash,
+                Listing.id != exclude_listing_id,
+            )
+        )
+        for other in session.scalars(stmt).unique():
+            if _price_matches(price, other.price, price_tolerance):
+                return other
+        return None
+
     stmt = (
         select(Listing)
         .join(Candidate, Candidate.listing_id == Listing.id)
         .where(
-            Listing.image_hash == image_hash,
+            Listing.image_hash.is_not(None),
             Listing.id != exclude_listing_id,
         )
+        .order_by(Listing.id.desc())
+        .limit(hamming_lookback)
     )
     for other in session.scalars(stmt).unique():
-        if price is None or other.price is None:
-            if price is None and other.price is None:
-                return other
-            continue
-        if abs(Decimal(other.price) - Decimal(price)) <= price_tolerance:
+        if hamming(image_hash, other.image_hash) <= hamming_threshold and _price_matches(
+            price, other.price, price_tolerance
+        ):
             return other
     return None

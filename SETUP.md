@@ -91,13 +91,16 @@ Kandidaten-Detail (mit Buy/Skip/Unclear), Inventar, Journal, Kalibrierung, Koste
 
 ## Kosten im Blick behalten
 
-- **Apify** kostet pro Ergebnis + Proxy-Bandbreite. `APIFY_MAX_ITEMS_PER_QUERY`
-  begrenzt es. Setz dir in Apify ein Usage-Limit.
-- **Vision (Opus 5)** ist das teuerste Stück. `ENRICH_VISION_MAX_PER_POLL=20`
-  deckelt die Zahl der Bild-Analysen pro Lauf. Zu teuer? In `.env`
-  `ENRICH_VISION_MODEL=claude-haiku-4-5` setzen (viel günstiger) oder
-  `ENRICH_VISION_ENABLED=false`.
-- Der Reiter **Kosten** in der Website zeigt den echten Verbrauch pro Quelle.
+- **Vision ist in V1 AUS** (`ENRICH_VISION_ENABLED=false`) — kommt erst in Phase 4
+  zurück. Nicht „nur zum Testen" anschalten.
+- **Cost Guard:** Jeder Provider hat ein **Tagesbudget** (`BUDGET_APIFY_DAILY_EUR`,
+  `BUDGET_SOLDCOMPS_DAILY_EUR`). Wird es erreicht, schaltet sich der Provider für
+  den Rest des Tages **automatisch ab** und du bekommst eine Discord-Warnung; der
+  Scan läuft ohne ihn weiter. Budget `0` = Provider ganz aus.
+- **Apify** kostet pro Ergebnis; `APIFY_MAX_ITEMS_PER_QUERY` begrenzt pro Abfrage.
+  Setz dir zusätzlich in Apify selbst ein Usage-Limit.
+- Der Reiter **Kosten** zeigt: heute pro Anbieter (ggf. „Budget erreicht"),
+  Gesamtkosten und **Kosten pro Fund** (Gesamtkosten ÷ Buy-Kandidaten).
 
 ## Wichtig (deine Regeln aus dem Konzept)
 

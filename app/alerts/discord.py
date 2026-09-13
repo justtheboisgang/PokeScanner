@@ -120,6 +120,16 @@ class DiscordNotifier:
     def enabled(self) -> bool:
         return bool(self.webhook_url)
 
+    def send_text(self, content: str) -> None:
+        """Post a plain text message (operational warnings, not listing alerts)."""
+        if not self.enabled:
+            return
+        resp = self._client.post(
+            self.webhook_url,
+            json={"content": content[:2000], "allowed_mentions": {"parse": []}},
+        )
+        resp.raise_for_status()
+
     def send(self, content: AlertContent) -> str | None:
         """Send an alert embed. Returns the Discord message id (for later edits)."""
         if not self.enabled:

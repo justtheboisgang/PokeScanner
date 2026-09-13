@@ -12,15 +12,16 @@ from sqlalchemy.orm import Session, joinedload
 from app.api.deps import get_db
 from app.api.schemas import (
     CalibrationSummary,
-    CostLine,
     CostsSummary,
     InventoryItem,
+    ProviderCost,
 )
-from app.config import get_settings
+from app.costs import PROVIDER_ANTHROPIC, PROVIDER_APIFY, PROVIDER_SOLDCOMPS, CostGuard
+from app.models.api_cost import ApiCost
 from app.models.candidate import Candidate
 from app.models.decision import Decision
+from app.models.enums import Verdict
 from app.models.purchase import Purchase, Sale
-from app.models.usage_event import UsageEvent
 
 router = APIRouter(prefix="/api", tags=["analytics"])
 
@@ -126,46 +127,50 @@ def calibration(db: Session = Depends(get_db)) -> CalibrationSummary:
     )
 
 
-# Map a usage source key to its configured per-call cost.
-def _unit_cost(source: str) -> Decimal:
-    s = get_settings()
-    if source in ("kleinanzeigen", "willhaben"):
-        return Decimal(str(s.cost_apify_per_run_eur))
-    if source == "ebay_browse":
-        return Decimal(str(s.cost_ebay_per_call_eur))
-    if source == "vision":
-        return Decimal(str(s.cost_vision_per_call_eur))
-    return Decimal("0")
-
-
 @router.get("/costs", response_model=CostsSummary)
 def costs(db: Session = Depends(get_db)) -> CostsSummary:
-    rows = db.execute(
-        select(UsageEvent.source, func.sum(UsageEvent.calls)).group_by(UsageEvent.source)
-    ).all()
+    """Per-provider spend today + cost per buy-verdict fund (Block 0.3)."""
+    # A guard bound to this request's session for today's spend + budgets.
+    guard = CostGuard(session_factory=lambda: _NullCtx(db))
 
-    lines: list[CostLine] = []
-    total = Decimal("0")
-    configured = False
-    for source, calls in rows:
-        calls = int(calls or 0)
-        unit = _unit_cost(source)
-        if unit > 0:
-            configured = True
-        est = unit * calls
-        total += est
-        lines.append(
-            CostLine(source=source, calls=calls, unit_cost_eur=unit, est_cost_eur=est)
+    providers: list[ProviderCost] = []
+    for provider in (PROVIDER_APIFY, PROVIDER_SOLDCOMPS, PROVIDER_ANTHROPIC):
+        providers.append(
+            ProviderCost(
+                provider=provider,
+                spent_today_eur=guard.spent_today(provider),
+                budget_eur=guard.budget(provider),
+                disabled=guard.is_disabled(provider),
+            )
         )
-    lines.sort(key=lambda x: x.source)
 
-    funds = db.scalar(select(func.count(Candidate.id))) or 0
-    cost_per_fund = (total / funds) if (funds and configured) else None
+    total = Decimal(
+        str(db.scalar(select(func.coalesce(func.sum(ApiCost.estimated_cost_eur), 0))) or 0)
+    )
+    buy_count = (
+        db.scalar(
+            select(func.count(Decision.id)).where(Decision.verdict == Verdict.BUY)
+        )
+        or 0
+    )
+    cost_per_fund = (total / buy_count) if buy_count else None
 
     return CostsSummary(
-        usage=lines,
-        total_est_cost_eur=total,
-        funds=funds,
+        providers=providers,
+        total_cost_eur=total,
+        buy_count=buy_count,
         cost_per_fund_eur=cost_per_fund,
-        costs_configured=configured,
     )
+
+
+class _NullCtx:
+    """Wrap an existing Session as a context manager the guard can use read-only."""
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def __enter__(self) -> Session:
+        return self._session
+
+    def __exit__(self, *exc: object) -> bool:
+        return False

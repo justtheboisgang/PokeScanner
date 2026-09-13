@@ -107,16 +107,23 @@ class Settings(BaseSettings):
     )
     ebay_browse_limit: int = Field(default=50, alias="EBAY_BROWSE_LIMIT")
 
-    # --- Cost estimates per call (§9 Kosten) — EUR, default 0 (= nur Verbrauch,
-    #     keine erfundene Kostenzahl, R3). Setzen, sobald echte Zahlen bekannt. ---
-    cost_apify_per_run_eur: Decimal = Field(
-        default=Decimal("0"), alias="COST_APIFY_PER_RUN_EUR"
+    # --- Cost guard (Block 0) — Stück-Kosten (Schätzung, empirisch anpassen) ---
+    cost_apify_per_listing_eur: Decimal = Field(
+        default=Decimal("0.001"), alias="COST_APIFY_PER_LISTING_EUR"
     )
-    cost_ebay_per_call_eur: Decimal = Field(
-        default=Decimal("0"), alias="COST_EBAY_PER_CALL_EUR"
+    cost_soldcomps_per_request_eur: Decimal = Field(
+        default=Decimal("0.02"), alias="COST_SOLDCOMPS_PER_REQUEST_EUR"
     )
-    cost_vision_per_call_eur: Decimal = Field(
-        default=Decimal("0"), alias="COST_VISION_PER_CALL_EUR"
+    # Tagesbudget je Provider (EUR). Bei Überschreitung wird der Provider für den
+    # Rest des Tages hart deaktiviert + Discord-Warnung. 0 = Provider ganz aus.
+    budget_apify_daily_eur: Decimal = Field(
+        default=Decimal("2"), alias="BUDGET_APIFY_DAILY_EUR"
+    )
+    budget_soldcomps_daily_eur: Decimal = Field(
+        default=Decimal("3"), alias="BUDGET_SOLDCOMPS_DAILY_EUR"
+    )
+    budget_anthropic_daily_eur: Decimal = Field(
+        default=Decimal("0"), alias="BUDGET_ANTHROPIC_DAILY_EUR"
     )
 
     # --- Cross-channel dedup (§5) ---
@@ -154,7 +161,9 @@ class Settings(BaseSettings):
     # --- Enrichment (Phase 4, §11) — runs AFTER/parallel to the alarm, never in
     #     the critical path (§10). Vision hints only, never a verdict/price. ---
     anthropic_api_key: str = Field(default="", alias="ANTHROPIC_API_KEY")
-    enrich_vision_enabled: bool = Field(default=True, alias="ENRICH_VISION_ENABLED")
+    # Vision is OFF by default (Block 0.1): it returns only in Phase 4, once
+    # logged decisions can show whether it reproduces the operator's judgement.
+    enrich_vision_enabled: bool = Field(default=False, alias="ENRICH_VISION_ENABLED")
     enrich_vision_model: str = Field(
         default="claude-opus-5", alias="ENRICH_VISION_MODEL"
     )

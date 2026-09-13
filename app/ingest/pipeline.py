@@ -19,6 +19,7 @@ from app.alerts.discord import AlertContent, DiscordNotifier
 from app.clients.exceptions import QuotaExceededError
 from app.config import Settings, get_settings
 from app.config_data import SearchTerms, load_search_terms
+from app.costs import PROVIDER_APIFY, CostGuard
 from app.db import session_scope
 from app.enrich.service import EnrichmentService
 from app.enrich.vision import VisionAnalyzer
@@ -38,6 +39,13 @@ _CHANNEL_LABELS = {
     Channel.KLEINANZEIGEN: "Kleinanzeigen",
     Channel.WILLHABEN: "willhaben",
     Channel.EBAY_BROWSE: "eBay",
+}
+
+# Which cost-guard provider a channel bills against (eBay Browse is free -> None).
+_CHANNEL_PROVIDER = {
+    Channel.KLEINANZEIGEN: PROVIDER_APIFY,
+    Channel.WILLHABEN: PROVIDER_APIFY,
+    Channel.EBAY_BROWSE: None,
 }
 
 
@@ -68,12 +76,16 @@ class IngestionPipeline:
         search_terms: SearchTerms | None = None,
         enrichment: EnrichmentService | None = None,
         hasher: ImageHasher | None = None,
+        cost_guard: CostGuard | None = None,
     ) -> None:
         self.sources = sources
         self.notifier = notifier
         self.session_factory = session_factory
         self.settings = settings or get_settings()
         self.search_terms = search_terms or load_search_terms()
+        self.cost_guard = cost_guard or CostGuard(
+            session_factory=session_factory, settings=self.settings
+        )
         self.enrichment = enrichment or EnrichmentService(
             VisionAnalyzer(), notifier, session_factory=session_factory
         )
@@ -115,8 +127,35 @@ class IngestionPipeline:
         except Exception:
             logger.exception("failed to record usage")
 
+    def _cost_provider(self, source: Source) -> str | None:
+        return _CHANNEL_PROVIDER.get(source.channel)
+
+    def _warn_provider_disabled(self, provider: str) -> None:
+        if self.cost_guard.already_notified_today(provider):
+            return
+        spent = self.cost_guard.spent_today(provider)
+        budget = self.cost_guard.budget(provider)
+        try:
+            self.notifier.send_text(
+                f"⚠️ PokeScanner: Tagesbudget für **{provider}** erreicht "
+                f"({spent:.2f} € / {budget:.2f} €). Der Provider ist für heute "
+                f"deaktiviert; der Scan läuft ohne ihn weiter."
+            )
+        except Exception:
+            logger.exception("failed to send budget warning for %s", provider)
+        self.cost_guard.mark_notified(provider)
+
     def _poll_source(self, source: Source, stats: PollStats) -> None:
+        provider = self._cost_provider(source)
         for term in self.search_terms.active:
+            # Cost guard: skip this provider for the rest of the day if over budget.
+            if provider is not None and self.cost_guard.is_disabled(provider):
+                self._warn_provider_disabled(provider)
+                logger.warning(
+                    "provider %s over budget — skipping source %s", provider, source.name
+                )
+                return
+
             stats.queries += 1
             stats.per_source_queries[source.name] = (
                 stats.per_source_queries.get(source.name, 0) + 1
@@ -132,6 +171,11 @@ class IngestionPipeline:
                 logger.exception("source %s failed for term %r", source.name, term)
                 stats.errors += 1
                 continue
+
+            # Record estimated cost of this call (lexis bills per listing).
+            if provider is not None:
+                self.cost_guard.record(provider, source.name, units=len(listings))
+
             for normalized in listings:
                 stats.items_seen += 1
                 try:

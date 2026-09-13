@@ -13,9 +13,9 @@ from app.models.enums import (
     SellerType,
     Verdict,
 )
+from app.models.api_cost import ApiCost
 from app.models.listing import Listing
 from app.models.purchase import Purchase, Sale
-from app.models.usage_event import UsageEvent
 
 
 def _listing(db, ext, channel=Channel.KLEINANZEIGEN):
@@ -108,33 +108,43 @@ def test_calibration_aggregates(client, db):
     assert d["avg_seconds_to_decision"] == 120.0
 
 
-def test_costs_usage_and_estimate(client, db):
+def test_costs_per_provider_and_cost_per_fund(client, db):
     db.add_all(
         [
-            UsageEvent(source="kleinanzeigen", calls=8),
-            UsageEvent(source="kleinanzeigen", calls=8),
-            UsageEvent(source="vision", calls=3),
+            ApiCost(provider="apify", endpoint="kleinanzeigen", units=100,
+                    estimated_cost_eur=Decimal("0.40")),
+            ApiCost(provider="soldcomps", endpoint="scrape", units=5,
+                    estimated_cost_eur=Decimal("0.20")),
         ]
     )
+    # One buy-verdict candidate -> cost per fund = total / 1.
     lst = _listing(db, "cost1")
-    db.add(Candidate(listing_id=lst.id))
+    cand = Candidate(listing_id=lst.id, alert_sent_at=datetime.now(timezone.utc))
+    db.add(cand)
+    db.flush()
+    db.add(
+        Decision(
+            candidate_id=cand.id,
+            verdict=Verdict.BUY,
+            counterfeit_check=CounterfeitCheck.PASSED,
+        )
+    )
     db.commit()
 
-    # No costs configured -> counts only.
     d = client.get("/api/costs").json()
-    assert d["costs_configured"] is False
-    ka = next(u for u in d["usage"] if u["source"] == "kleinanzeigen")
-    assert ka["calls"] == 16
+    providers = {p["provider"]: p for p in d["providers"]}
+    assert Decimal(providers["apify"]["spent_today_eur"]) == Decimal("0.40")
+    assert providers["apify"]["disabled"] is False  # under 2 EUR budget
+    # anthropic budget is 0 -> always disabled (vision off in V1).
+    assert providers["anthropic"]["disabled"] is True
+    assert d["buy_count"] == 1
+    assert Decimal(d["total_cost_eur"]) == Decimal("0.60")
+    assert Decimal(d["cost_per_fund_eur"]) == Decimal("0.60")
+
+
+def test_costs_no_buys_gives_null_cost_per_fund(client, db):
+    db.add(ApiCost(provider="apify", endpoint="x", units=1, estimated_cost_eur=Decimal("0.1")))
+    db.commit()
+    d = client.get("/api/costs").json()
+    assert d["buy_count"] == 0
     assert d["cost_per_fund_eur"] is None
-
-    # Configure a vision unit cost -> estimate appears.
-    from app.config import get_settings
-
-    get_settings().cost_vision_per_call_eur = Decimal("0.50")
-    d2 = client.get("/api/costs").json()
-    assert d2["costs_configured"] is True
-    vision = next(u for u in d2["usage"] if u["source"] == "vision")
-    assert Decimal(vision["est_cost_eur"]) == Decimal("1.50")  # 3 * 0.50
-    # funds = 1 -> cost per fund = total (1.50)
-    assert Decimal(d2["cost_per_fund_eur"]) == Decimal("1.50")
-    get_settings().cost_vision_per_call_eur = Decimal("0")  # reset cached singleton

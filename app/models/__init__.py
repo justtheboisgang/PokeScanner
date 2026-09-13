@@ -1,5 +1,6 @@
 """ORM models. Importing this package registers every table on `Base.metadata`."""
 
+from app.models.api_cost import ApiCost
 from app.models.candidate import Candidate
 from app.models.card import Card, Variant
 from app.models.decision import Decision
@@ -21,6 +22,7 @@ from app.models.reference_value import ReferenceValue
 from app.models.usage_event import UsageEvent
 
 __all__ = [
+    "ApiCost",
     "Candidate",
     "Card",
     "Variant",

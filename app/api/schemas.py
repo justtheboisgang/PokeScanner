@@ -138,19 +138,19 @@ class InventoryItem(BaseModel):
     exit_hint: str
 
 
-class CostLine(BaseModel):
-    source: str
-    calls: int
-    unit_cost_eur: Decimal
-    est_cost_eur: Decimal
+class ProviderCost(BaseModel):
+    provider: str
+    spent_today_eur: Decimal
+    budget_eur: Decimal
+    disabled: bool
 
 
 class CostsSummary(BaseModel):
-    usage: list[CostLine]
-    total_est_cost_eur: Decimal
-    funds: int
+    providers: list[ProviderCost]
+    total_cost_eur: Decimal
+    buy_count: int
+    # Gesamtkosten / Anzahl Kandidaten mit Verdict "buy" — die Kernkennzahl (0.3).
     cost_per_fund_eur: Decimal | None
-    costs_configured: bool
 
 
 class CalibrationSummary(BaseModel):

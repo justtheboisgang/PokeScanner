@@ -10,7 +10,7 @@ from __future__ import annotations
 from decimal import Decimal
 from functools import lru_cache
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -178,6 +178,14 @@ class Settings(BaseSettings):
     @property
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.cors_allow_origins.split(",") if o.strip()]
+
+    @field_validator("alert_price_ceiling_eur", mode="before")
+    @classmethod
+    def _blank_to_none(cls, v):
+        # An empty value in .env means "no ceiling", not an invalid number.
+        if v is None or (isinstance(v, str) and v.strip() == ""):
+            return None
+        return v
 
 
 @lru_cache

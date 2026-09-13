@@ -25,6 +25,7 @@ export const api = {
   listInventory: () => request(`/inventory`),
   getCalibration: () => request(`/calibration`),
   getCosts: () => request(`/costs`),
+  getDiagnostics: () => request(`/diagnostics`),
 };
 
 export function formatEuro(value, currency = "EUR") {

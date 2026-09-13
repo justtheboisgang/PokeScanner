@@ -142,6 +142,43 @@ def test_costs_per_provider_and_cost_per_fund(client, db):
     assert Decimal(d["cost_per_fund_eur"]) == Decimal("0.60")
 
 
+def test_diagnostics_per_term_and_time_to_alert(client, db):
+    lst1 = _listing(db, "d1")
+    lst2 = _listing(db, "d2")
+    c1 = Candidate(
+        listing_id=lst1.id,
+        triggering_search_terms=["alte pokemon karten", "pokemon sammlung"],
+        time_to_alert_seconds=100,
+    )
+    c2 = Candidate(
+        listing_id=lst2.id,
+        triggering_search_terms=["alte pokemon karten"],
+        time_to_alert_seconds=300,
+    )
+    db.add_all([c1, c2])
+    db.flush()
+    db.add(
+        Decision(
+            candidate_id=c1.id,
+            verdict=Verdict.BUY,
+            counterfeit_check=CounterfeitCheck.PASSED,
+        )
+    )
+    db.commit()
+
+    d = client.get("/api/diagnostics").json()
+    assert d["total_candidates"] == 2
+    per = {t["term"]: t for t in d["per_term"]}
+    assert per["alte pokemon karten"]["candidates"] == 2  # both
+    assert per["alte pokemon karten"]["buy"] == 1
+    assert per["pokemon sammlung"]["candidates"] == 1
+    assert d["time_to_alert_count"] == 2
+    assert d["time_to_alert_median_seconds"] == 200.0
+    # nothing resolved yet (no reference values)
+    assert d["resolver_resolved"] == 0
+    assert d["resolver_attempted"] == 2
+
+
 def test_costs_no_buys_gives_null_cost_per_fund(client, db):
     db.add(ApiCost(provider="apify", endpoint="x", units=1, estimated_cost_eur=Decimal("0.1")))
     db.commit()

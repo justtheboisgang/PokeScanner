@@ -47,6 +47,11 @@ class Listing(Base):
 
     url: Mapped[str | None] = mapped_column(Text)
 
+    # When the ad was posted on the channel (§1.2), not when we scraped it.
+    listed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # How exact listed_at is: "minute" | "hour" | "day" | "unknown".
+    listed_at_precision: Mapped[str | None] = mapped_column(String(16))
+
     first_seen_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

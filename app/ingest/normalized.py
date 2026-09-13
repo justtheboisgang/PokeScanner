@@ -7,6 +7,7 @@ this shape so ingestion, dedup, the alarm rule and enrichment are shared.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime
 from decimal import Decimal
 
 from app.models.enums import Channel, SellerType
@@ -24,4 +25,7 @@ class NormalizedListing:
     seller_type: SellerType
     images: list[str]
     url: str | None
+    # When the ad was posted on the channel (§1.2), with a precision marker.
+    listed_at: datetime | None = None
+    listed_at_precision: str = "unknown"
     raw_payload: dict = field(default_factory=dict)

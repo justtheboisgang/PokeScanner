@@ -26,7 +26,12 @@ from app.enrich.vision import VisionAnalyzer
 from app.ingest.alarm import evaluate
 from app.ingest.dedup import ImageHasher, find_duplicate_listing
 from app.ingest.normalized import NormalizedListing
-from app.ingest.repo import create_candidate, mark_alert_sent, upsert_listing
+from app.ingest.repo import (
+    add_triggering_term,
+    create_candidate,
+    mark_alert_sent,
+    upsert_listing,
+)
 from app.ingest.sources import Source, build_sources
 from app.models.candidate import Candidate
 from app.models.enums import Channel
@@ -193,6 +198,8 @@ class IngestionPipeline:
             listing, is_new = upsert_listing(session, normalized)
             listing_id = listing.id
             if not is_new:
+                # Same ad surfaced by another active term — record that term (§1.1).
+                add_triggering_term(session, listing_id, term)
                 stats.skipped_seen += 1
                 return
 

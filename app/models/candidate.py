@@ -10,10 +10,13 @@ from __future__ import annotations
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import DateTime, ForeignKey, Numeric, String, Text, func
+from sqlalchemy import JSON, DateTime, ForeignKey, Integer, Numeric, String, Text, func
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
+
+_JsonList = JSON().with_variant(JSONB, "postgresql")
 
 
 class Candidate(Base):
@@ -33,6 +36,10 @@ class Candidate(Base):
     # The taxonomy term that triggered this candidate — enables data-driven
     # rotation of the active query subset (§4.4 calibration).
     matched_search_term: Mapped[str | None] = mapped_column(String(255), index=True)
+    # ALL active terms that surfaced this listing (§1.1), not just the first.
+    triggering_search_terms: Mapped[list[str]] = mapped_column(_JsonList, default=list)
+    # listed_at (channel) -> alert_sent_at, the Time-to-Contact measure (§1.3).
+    time_to_alert_seconds: Mapped[int | None] = mapped_column(Integer)
     alert_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # Discord message id, so later enrichment can EDIT the embed (R1, §8).
     discord_message_id: Mapped[str | None] = mapped_column(String(64))

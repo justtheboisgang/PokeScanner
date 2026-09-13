@@ -13,8 +13,10 @@ from app.api.deps import get_db
 from app.api.schemas import (
     CalibrationSummary,
     CostsSummary,
+    DiagnosticsReport,
     InventoryItem,
     ProviderCost,
+    TermDiagnostic,
 )
 from app.costs import PROVIDER_ANTHROPIC, PROVIDER_APIFY, PROVIDER_SOLDCOMPS, CostGuard
 from app.models.api_cost import ApiCost
@@ -124,6 +126,72 @@ def calibration(db: Session = Depends(get_db)) -> CalibrationSummary:
         closed_deals=len(sales),
         avg_forecast_error_eur=_avg(errors),
         avg_abs_forecast_error_eur=_avg([abs(e) for e in errors]),
+    )
+
+
+def _percentile(values: list[int], p: float) -> float | None:
+    if not values:
+        return None
+    s = sorted(values)
+    if len(s) == 1:
+        return float(s[0])
+    k = (len(s) - 1) * p
+    lo = int(k)
+    hi = min(lo + 1, len(s) - 1)
+    return float(s[lo] + (s[hi] - s[lo]) * (k - lo))
+
+
+@router.get("/diagnostics", response_model=DiagnosticsReport)
+def diagnostics(db: Session = Depends(get_db)) -> DiagnosticsReport:
+    """Measurement report (§1.5): finds per term, verdict split, time-to-alert."""
+    candidates = db.scalars(
+        select(Candidate).options(joinedload(Candidate.decision))
+    ).unique().all()
+    total = len(candidates)
+
+    per_term: dict[str, dict[str, int]] = {}
+    times: list[int] = []
+    resolved = 0
+    for c in candidates:
+        if c.reference_value_id is not None:
+            resolved += 1
+        if c.time_to_alert_seconds is not None:
+            times.append(c.time_to_alert_seconds)
+        terms = list(c.triggering_search_terms or [])
+        if not terms:
+            terms = [c.matched_search_term or "—"]
+        verdict = c.decision.verdict.value if c.decision else "undecided"
+        for term in terms:
+            row = per_term.setdefault(
+                term, {"candidates": 0, "buy": 0, "skip": 0, "unclear": 0, "undecided": 0}
+            )
+            row["candidates"] += 1
+            row[verdict] = row.get(verdict, 0) + 1
+
+    term_rows = [
+        TermDiagnostic(
+            term=term,
+            candidates=r["candidates"],
+            share=(r["candidates"] / total if total else 0.0),
+            buy=r["buy"],
+            skip=r["skip"],
+            unclear=r["unclear"],
+            undecided=r["undecided"],
+        )
+        for term, r in per_term.items()
+    ]
+    term_rows.sort(key=lambda x: x.candidates, reverse=True)
+
+    from statistics import median
+
+    return DiagnosticsReport(
+        total_candidates=total,
+        per_term=term_rows,
+        time_to_alert_count=len(times),
+        time_to_alert_median_seconds=(float(median(times)) if times else None),
+        time_to_alert_p90_seconds=_percentile(times, 0.9),
+        resolver_attempted=total,
+        resolver_resolved=resolved,
     )
 
 

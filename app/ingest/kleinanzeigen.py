@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 
 from app.ingest.normalized import NormalizedListing
@@ -138,6 +139,52 @@ def _plain_decimal(value: object) -> Decimal | None:
     return d if d >= 0 else None
 
 
+_REL_RE = re.compile(r"vor\s+(\d+)\s+(minute|minuten|stunde|stunden|tag|tagen)", re.I)
+
+
+def parse_listed_at(
+    value: object, *, now: datetime | None = None
+) -> tuple[datetime | None, str]:
+    """Parse a Kleinanzeigen posting date into (datetime_utc, precision).
+
+    Handles absolute 'DD.MM.YYYY' (precision 'day'), 'Heute'/'Gestern' and
+    relative 'vor X Stunden/Minuten/Tagen'. Unrecognized -> (None, 'unknown').
+    """
+    now = now or datetime.now(timezone.utc)
+    if value is None:
+        return None, "unknown"
+    text = str(value).strip().lower()
+    if not text:
+        return None, "unknown"
+
+    m = re.fullmatch(r"(\d{1,2})\.(\d{1,2})\.(\d{4})", text)
+    if m:
+        d, mo, y = (int(g) for g in m.groups())
+        try:
+            return datetime(y, mo, d, tzinfo=timezone.utc), "day"
+        except ValueError:
+            return None, "unknown"
+
+    if text.startswith("heute"):
+        return now.replace(hour=0, minute=0, second=0, microsecond=0), "day"
+    if text.startswith("gestern"):
+        return (now - timedelta(days=1)).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        ), "day"
+
+    rel = _REL_RE.search(text)
+    if rel:
+        n = int(rel.group(1))
+        unit = rel.group(2)
+        if unit.startswith("minute"):
+            return now - timedelta(minutes=n), "minute"
+        if unit.startswith("stunde"):
+            return now - timedelta(hours=n), "hour"
+        return now - timedelta(days=n), "day"
+
+    return None, "unknown"
+
+
 def normalize_lexis_item(item: dict) -> NormalizedListing | None:
     """Normalize an item from lexis-solutions/ebay-kleinanzeigen.
 
@@ -163,6 +210,8 @@ def normalize_lexis_item(item: dict) -> NormalizedListing | None:
         SellerType.COMMERCIAL if item.get("companyInfo") else SellerType.PRIVATE
     )
 
+    listed_at, precision = parse_listed_at(item.get("date"))
+
     return NormalizedListing(
         channel=Channel.KLEINANZEIGEN,
         external_id=str(ext),
@@ -176,6 +225,8 @@ def normalize_lexis_item(item: dict) -> NormalizedListing | None:
         seller_type=seller_type,
         images=images,
         url=(str(item["url"]) if item.get("url") else None),
+        listed_at=listed_at,
+        listed_at_precision=precision,
         raw_payload=item,
     )
 

@@ -166,6 +166,27 @@ class CalibrationSummary(BaseModel):
     avg_abs_forecast_error_eur: float | None
 
 
+class TermDiagnostic(BaseModel):
+    term: str
+    candidates: int
+    share: float
+    buy: int
+    skip: int
+    unclear: int
+    undecided: int
+
+
+class DiagnosticsReport(BaseModel):
+    total_candidates: int
+    per_term: list[TermDiagnostic]
+    time_to_alert_count: int
+    time_to_alert_median_seconds: float | None
+    time_to_alert_p90_seconds: float | None
+    # Title resolver (wired in Block 2): how often it ran vs. actually resolved.
+    resolver_attempted: int
+    resolver_resolved: int
+
+
 class JournalItem(BaseModel):
     purchase_id: int
     purchase_price: Decimal

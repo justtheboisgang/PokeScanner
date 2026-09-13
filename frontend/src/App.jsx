@@ -5,6 +5,7 @@ import Journal from "./pages/Journal.jsx";
 import Inventory from "./pages/Inventory.jsx";
 import Calibration from "./pages/Calibration.jsx";
 import Costs from "./pages/Costs.jsx";
+import Diagnostics from "./pages/Diagnostics.jsx";
 
 function NavItem({ to, children }) {
   return (
@@ -37,6 +38,7 @@ export default function App() {
             <NavItem to="/inventory">Inventar</NavItem>
             <NavItem to="/journal">Journal</NavItem>
             <NavItem to="/calibration">Kalibrierung</NavItem>
+            <NavItem to="/diagnostics">Diagnose</NavItem>
             <NavItem to="/costs">Kosten</NavItem>
           </nav>
           <span className="ml-auto text-xs text-slate-500">
@@ -52,6 +54,7 @@ export default function App() {
           <Route path="/inventory" element={<Inventory />} />
           <Route path="/journal" element={<Journal />} />
           <Route path="/calibration" element={<Calibration />} />
+          <Route path="/diagnostics" element={<Diagnostics />} />
           <Route path="/costs" element={<Costs />} />
         </Routes>
       </main>

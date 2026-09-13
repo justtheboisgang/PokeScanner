@@ -50,6 +50,8 @@ def upsert_listing(
         seller_type=normalized.seller_type,
         images=list(normalized.images),
         url=normalized.url,
+        listed_at=normalized.listed_at,
+        listed_at_precision=normalized.listed_at_precision,
         first_seen_at=now,
         last_seen_at=now,
         raw_payload=normalized.raw_payload,
@@ -73,14 +75,36 @@ def create_candidate(
         estimated_profit=None,  # unbewertbar in Phase 2
         alert_reason=alert_reason,
         matched_search_term=matched_search_term,
+        triggering_search_terms=[matched_search_term] if matched_search_term else [],
     )
     session.add(candidate)
     session.flush()  # assign candidate.id
     return candidate
 
 
+def add_triggering_term(session: Session, listing_id: int, term: str) -> None:
+    """Record another active term that surfaced an already-seen listing (§1.1)."""
+    candidate = session.scalar(
+        select(Candidate).where(Candidate.listing_id == listing_id)
+    )
+    if candidate is None:
+        return
+    terms = list(candidate.triggering_search_terms or [])
+    if term and term not in terms:
+        terms.append(term)
+        candidate.triggering_search_terms = terms
+
+
 def mark_alert_sent(
     session: Session, candidate: Candidate, message_id: str | None
 ) -> None:
-    candidate.alert_sent_at = datetime.now(timezone.utc)
+    now = datetime.now(timezone.utc)
+    candidate.alert_sent_at = now
     candidate.discord_message_id = message_id
+    # Time-to-Contact: from the ad's posting time to the alert (§1.3).
+    listing = candidate.listing
+    if listing is not None and listing.listed_at is not None:
+        listed = listing.listed_at
+        if listed.tzinfo is None:
+            listed = listed.replace(tzinfo=timezone.utc)
+        candidate.time_to_alert_seconds = max(0, int((now - listed).total_seconds()))

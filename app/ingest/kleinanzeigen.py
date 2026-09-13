@@ -127,13 +127,24 @@ def normalize(item: dict) -> NormalizedListing | None:
     return normalize_apify_item(item, Channel.KLEINANZEIGEN)
 
 
+def build_kleinanzeigen_search_url(query: str) -> str:
+    """A Kleinanzeigen keyword search-results URL for a term."""
+    slug = re.sub(r"[^a-z0-9]+", "-", query.strip().lower()).strip("-")
+    return f"https://www.kleinanzeigen.de/s-{slug}/k0"
+
+
 def build_run_input(query: str, template: str | None = None) -> dict:
     """Build the actor input for one search term.
 
-    If `template` (JSON) is given, "{{query}}" in it is replaced with the term —
-    lets you match a specific actor's schema via config. Otherwise a generic shape
-    (`search`/`query`/`keyword` all set) that fits common Kleinanzeigen actors.
+    If `template` (JSON) is given, placeholders are substituted:
+      - "{{query}}"      -> the raw search term
+      - "{{search_url}}" -> a Kleinanzeigen search-results URL for the term
+    This lets you match any actor's schema via config. Without a template, a
+    generic keyword shape (`search`/`query`/`keyword`) is used.
     """
     if template and template.strip():
-        return json.loads(template.replace("{{query}}", query))
+        q = json.dumps(query)[1:-1]  # JSON-escaped, without surrounding quotes
+        url = json.dumps(build_kleinanzeigen_search_url(query))[1:-1]
+        filled = template.replace("{{query}}", q).replace("{{search_url}}", url)
+        return json.loads(filled)
     return {"search": query, "query": query, "keyword": query}

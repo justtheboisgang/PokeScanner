@@ -15,10 +15,8 @@ from zoneinfo import ZoneInfo
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from app.alerts.discord import DiscordNotifier
-from app.clients.apify import ApifyClient
 from app.config import Settings, get_settings
-from app.ingest.pipeline import KleinanzeigenPipeline
+from app.ingest.pipeline import build_pipeline
 
 logger = logging.getLogger(__name__)
 
@@ -57,9 +55,7 @@ def run() -> None:
     settings = get_settings()
     tz = ZoneInfo(settings.scheduler_timezone)
 
-    apify = ApifyClient()
-    notifier = DiscordNotifier()
-    pipeline = KleinanzeigenPipeline(apify, notifier, settings=settings)
+    pipeline = build_pipeline(settings=settings)
 
     scheduler = BlockingScheduler(timezone=tz)
     day_trigger, night_trigger = build_triggers(settings, tz)

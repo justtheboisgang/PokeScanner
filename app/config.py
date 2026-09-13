@@ -84,6 +84,30 @@ class Settings(BaseSettings):
         default=40, alias="APIFY_MAX_ITEMS_PER_QUERY"
     )
 
+    # --- Channels (Phase 5) ---
+    kleinanzeigen_enabled: bool = Field(default=True, alias="KLEINANZEIGEN_ENABLED")
+    willhaben_enabled: bool = Field(default=False, alias="WILLHABEN_ENABLED")
+    apify_willhaben_actor: str = Field(default="", alias="APIFY_WILLHABEN_ACTOR")
+    ebay_browse_enabled: bool = Field(default=False, alias="EBAY_BROWSE_ENABLED")
+    ebay_client_id: str = Field(default="", alias="EBAY_CLIENT_ID")
+    ebay_client_secret: str = Field(default="", alias="EBAY_CLIENT_SECRET")
+    ebay_marketplace: str = Field(default="EBAY_DE", alias="EBAY_MARKETPLACE")
+    ebay_oauth_url: str = Field(
+        default="https://api.ebay.com/identity/v1/oauth2/token", alias="EBAY_OAUTH_URL"
+    )
+    ebay_browse_base_url: str = Field(
+        default="https://api.ebay.com", alias="EBAY_BROWSE_BASE_URL"
+    )
+    ebay_browse_limit: int = Field(default=50, alias="EBAY_BROWSE_LIMIT")
+
+    # --- Cross-channel dedup (§5) ---
+    dedup_image_hash_enabled: bool = Field(
+        default=True, alias="DEDUP_IMAGE_HASH_ENABLED"
+    )
+    dedup_price_tolerance_eur: Decimal = Field(
+        default=Decimal("5"), alias="DEDUP_PRICE_TOLERANCE_EUR"
+    )
+
     # --- Alarm gate (Phase 2, §7) ---
     # No absolute price ceiling by default (R4). Set to enable one.
     alert_price_ceiling_eur: Decimal | None = Field(

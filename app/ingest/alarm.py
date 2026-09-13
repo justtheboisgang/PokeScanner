@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 from app.config_data import SearchTerms
-from app.ingest.kleinanzeigen import NormalizedListing
+from app.ingest.normalized import NormalizedListing
 
 
 @dataclass(frozen=True)

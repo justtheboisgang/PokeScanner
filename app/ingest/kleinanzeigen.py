@@ -8,10 +8,10 @@ candidate keys are tried per field, and the full raw item is preserved in
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 
-from app.models.enums import SellerType
+from app.ingest.normalized import NormalizedListing
+from app.models.enums import Channel, SellerType
 
 # Free-giveaway phrases -> price 0 (a free Konvolut can be a real find).
 _FREE_MARKERS = ("zu verschenken", "verschenke", "kostenlos", "gratis", "free")
@@ -28,20 +28,6 @@ _CONDITION_KEYS = ("condition", "zustand", "Zustand")
 _DATE_KEYS = ("date", "postedDate", "postedAt", "createdAt", "publishedAt")
 
 _NUM_RE = re.compile(r"\d[\d.\s]*(?:,\d+)?")
-
-
-@dataclass
-class NormalizedListing:
-    external_id: str
-    title: str
-    description: str | None
-    price: Decimal | None
-    currency: str
-    location: str | None
-    seller_type: SellerType
-    images: list[str]
-    url: str | None
-    raw_payload: dict = field(default_factory=dict)
 
 
 def _first(item: dict, keys: tuple[str, ...]) -> object:
@@ -106,8 +92,12 @@ def _images(raw: object) -> list[str]:
     return []
 
 
-def normalize(item: dict) -> NormalizedListing | None:
-    """Map a raw actor item to a NormalizedListing. None if no id or title."""
+def normalize_apify_item(item: dict, channel: Channel) -> NormalizedListing | None:
+    """Map a raw Apify item to a NormalizedListing. None if no id or title.
+
+    Shared by the Kleinanzeigen and willhaben sources — both actors expose the
+    same rough field shapes; the key lists above are tried defensively.
+    """
     ext = _first(item, _ID_KEYS)
     url = _first(item, _URL_KEYS)
     if ext is None and url is not None:
@@ -117,6 +107,7 @@ def normalize(item: dict) -> NormalizedListing | None:
         return None
 
     return NormalizedListing(
+        channel=channel,
         external_id=str(ext),
         title=str(title),
         description=(str(_first(item, _DESC_KEYS)) if _first(item, _DESC_KEYS) else None),
@@ -128,6 +119,11 @@ def normalize(item: dict) -> NormalizedListing | None:
         url=(str(url) if url else None),
         raw_payload=item,
     )
+
+
+def normalize(item: dict) -> NormalizedListing | None:
+    """Normalize a Kleinanzeigen actor item."""
+    return normalize_apify_item(item, Channel.KLEINANZEIGEN)
 
 
 def build_run_input(query: str) -> dict:

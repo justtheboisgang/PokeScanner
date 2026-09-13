@@ -7,6 +7,28 @@ Bewertung gegen echte Verkaufsdaten und Alarmierung.
 > um Fundfrequenz pro Kanal und Time-to-Contact zu messen. Kaufentscheidungen
 > triffst du manuell.
 
+## Status: Phase 5 (Weitere Kanäle)
+
+Mehrkanal-Ingestion mit geteiltem Alarm-/Anreicherungs-Pfad und Cross-Channel-Dedup.
+
+- **eBay Browse API** (`app/clients/ebay.py`, §4.3): OAuth2-Client-Credentials
+  (Token gecached), Suche aktiver Listings, 403 (Tageslimit) / 429 unterschieden.
+- **willhaben** (`app/ingest/sources.py`): über Apify, teilt den generischen
+  Apify-Normalizer mit Kleinanzeigen.
+- **Kanal-agnostische Pipeline** (`app/ingest/pipeline.py`, `sources.py`,
+  `normalized.py`): iteriert `Source × aktive Begriffe`; Ingestion, Dedup,
+  Alarm-Regel und Anreicherung sind geteilt. Sources werden per Config
+  zu-/abgeschaltet (`*_ENABLED` + Credentials/Actor).
+- **Cross-Channel-Dedup** (`app/ingest/dedup.py`, §5): aHash (Pillow) des ersten
+  Bildes + Preis-Toleranz. Bildabruf nur für **alarmierende** Kandidaten
+  (kostenbewusst). Cross-gepostete Anzeigen alarmieren nur einmal.
+- **Tests**: eBay-Client (Token-Cache/Suche/403/429), Normalizer (eBay/willhaben),
+  `build_sources`-Toggles, aHash/ImageHasher/Dedup-Lookup, und eine
+  Pipeline-Integration (Alarm, Negativ-Ausschluss, seen-Dedup, Cross-Channel-Dedup).
+  88 gesamt.
+
+**Vinted** ist bewusst zurückgestellt (§11: DataDome/JA3 → teuerster Kanal, zuletzt).
+
 ## Status: Phase 4 (Anreicherung)
 
 Vision-Triage + Textextraktion, **nach und parallel** zum Alarm — nie im
@@ -166,6 +188,9 @@ Mit Docker läuft alles zusammen (`db` + `migrate` + `api` + `worker`) via
 
 - **§9 vs. §5:** ✅ gelöst in Phase 3 — `reference_comp`-Tabelle (Migration 0003)
   speichert jeden Comp einzeln; das Kandidaten-Detail listet sie auf.
+- **Cross-Channel-Dedup:** ✅ in Phase 5 — aHash + Preis-Toleranz, nur für
+  alarmierende Kandidaten (bounded). Exakter aHash-Match; Hamming-Toleranz für
+  re-enkodierte Bilder ist ein möglicher späterer Feinschliff.
 - **Sprach-Bucketing der Sold-Comps** (§4.2 „erst ohne Filter, dann nachschärfen"
   vs. §6 „Sprache passend"): Die adaptive Policy ist bewusst NICHT im Orchestrator
   verdrahtet; der Aufrufer übergibt die Aspect-Filter. Festzulegen, wenn Phase 2

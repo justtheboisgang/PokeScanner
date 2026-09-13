@@ -12,22 +12,22 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.ingest.kleinanzeigen import NormalizedListing
+from app.ingest.normalized import NormalizedListing
 from app.models.candidate import Candidate
-from app.models.enums import Channel
 from app.models.listing import Listing
 
 
 def upsert_listing(
-    session: Session, normalized: NormalizedListing, channel: Channel = Channel.KLEINANZEIGEN
+    session: Session, normalized: NormalizedListing
 ) -> tuple[Listing, bool]:
     """Insert a listing, or update last_seen_at if already known.
 
     Returns (listing, is_new). is_new=False means it was seen before (no re-alert).
+    Dedup is per channel on external_id; cross-channel dedup is image-hash based.
     """
     existing = session.scalar(
         select(Listing).where(
-            Listing.channel == channel,
+            Listing.channel == normalized.channel,
             Listing.external_id == normalized.external_id,
         )
     )
@@ -40,7 +40,7 @@ def upsert_listing(
         return existing, False
 
     listing = Listing(
-        channel=channel,
+        channel=normalized.channel,
         external_id=normalized.external_id,
         title=normalized.title,
         description=normalized.description,

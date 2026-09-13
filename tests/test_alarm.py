@@ -6,8 +6,8 @@ from decimal import Decimal
 
 from app.config_data import SearchTerms
 from app.ingest.alarm import evaluate
-from app.ingest.kleinanzeigen import NormalizedListing
-from app.models.enums import SellerType
+from app.ingest.normalized import NormalizedListing
+from app.models.enums import Channel, SellerType
 
 TERMS = SearchTerms(
     positive=("alte pokemon karten",),
@@ -18,6 +18,7 @@ TERMS = SearchTerms(
 
 def _listing(title="Alte Pokemon Karten", desc="", price=None):
     return NormalizedListing(
+        channel=Channel.KLEINANZEIGEN,
         external_id="1",
         title=title,
         description=desc,

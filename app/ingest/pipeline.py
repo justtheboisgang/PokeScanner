@@ -25,6 +25,8 @@ from app.clients.exceptions import QuotaExceededError
 from app.config import Settings, get_settings
 from app.config_data import SearchTerms, load_search_terms
 from app.db import session_scope
+from app.enrich.service import EnrichmentService
+from app.enrich.vision import VisionAnalyzer
 from app.ingest.alarm import evaluate
 from app.ingest.kleinanzeigen import build_run_input, normalize
 from app.ingest.repo import create_candidate, mark_alert_sent, upsert_listing
@@ -43,6 +45,7 @@ class PollStats:
     skipped_excluded: int = 0
     skipped_unparseable: int = 0
     errors: int = 0
+    vision_calls: int = 0
     per_term_new: dict[str, int] = field(default_factory=dict)
 
 
@@ -55,16 +58,22 @@ class KleinanzeigenPipeline:
         session_factory: Callable[[], AbstractContextManager[Session]] = session_scope,
         settings: Settings | None = None,
         search_terms: SearchTerms | None = None,
+        enrichment: EnrichmentService | None = None,
     ) -> None:
         self.apify = apify
         self.notifier = notifier
         self.session_factory = session_factory
         self.settings = settings or get_settings()
         self.search_terms = search_terms or load_search_terms()
+        self.enrichment = enrichment or EnrichmentService(
+            VisionAnalyzer(), notifier, session_factory=session_factory
+        )
+        self._vision_calls_left = 0
 
     def poll(self) -> PollStats:
         """Run one poll over the active query subset."""
         stats = PollStats()
+        self._vision_calls_left = self.settings.enrich_vision_max_per_poll
         actor = self.settings.apify_kleinanzeigen_actor
         if not actor:
             logger.warning("APIFY_KLEINANZEIGEN_ACTOR not set; poll is a no-op")
@@ -154,3 +163,14 @@ class KleinanzeigenPipeline:
                 mark_alert_sent(session, candidate, message_id)
         stats.alerts_sent += 1
         stats.per_term_new[term] = stats.per_term_new.get(term, 0) + 1
+
+        # Enrichment runs AFTER the alert (never in the critical path, §10).
+        # Text extraction always runs; vision is gated by the per-poll budget.
+        allow_vision = self._vision_calls_left > 0
+        try:
+            outcome = self.enrichment.enrich(candidate_id, allow_vision=allow_vision)
+            if outcome.vision_used:
+                self._vision_calls_left -= 1
+                stats.vision_calls += 1
+        except Exception:
+            logger.exception("enrichment failed for candidate %s", candidate_id)

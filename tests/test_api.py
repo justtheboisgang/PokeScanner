@@ -8,6 +8,7 @@ from decimal import Decimal
 from app.models.candidate import Candidate
 from app.models.card import Card, Variant
 from app.models.decision import Decision
+from app.models.enrichment import Enrichment
 from app.models.enums import (
     Channel,
     Condition,
@@ -134,6 +135,30 @@ def test_detail_lists_individual_comps(client, db):
     assert {c["source_item_id"] for c in comps} == {"item-1", "item-2"}
     assert comps[0]["boa_hydrated"] in (True, False)
     assert len(detail["listing"]["images"]) == 2
+
+
+def test_detail_includes_enrichment(client, db):
+    listing = _listing(db, external_id="ext-enrich")
+    db.add(listing)
+    db.flush()
+    cand = Candidate(listing_id=listing.id, matched_search_term="alte pokemon karten")
+    db.add(cand)
+    db.flush()
+    db.add(
+        Enrichment(
+            candidate_id=cand.id,
+            condition_flags=["knick", "kratzer"],
+            vision_summary="e-Serie, deutsche Karten",
+            vision_model="claude-opus-5",
+            vision_used=True,
+        )
+    )
+    db.commit()
+
+    detail = client.get(f"/api/candidates/{cand.id}").json()
+    assert detail["enrichment"]["vision_used"] is True
+    assert detail["enrichment"]["condition_flags"] == ["knick", "kratzer"]
+    assert detail["enrichment"]["vision_summary"] == "e-Serie, deutsche Karten"
 
 
 def test_detail_404(client):

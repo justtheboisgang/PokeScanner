@@ -3,6 +3,7 @@
 from app.models.candidate import Candidate
 from app.models.card import Card, Variant
 from app.models.decision import Decision
+from app.models.enrichment import Enrichment
 from app.models.enums import (
     Channel,
     Condition,
@@ -23,6 +24,7 @@ __all__ = [
     "Card",
     "Variant",
     "Decision",
+    "Enrichment",
     "Listing",
     "Purchase",
     "Sale",

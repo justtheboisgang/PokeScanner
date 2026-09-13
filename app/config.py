@@ -103,6 +103,22 @@ class Settings(BaseSettings):
     poll_day_start_hour: int = Field(default=8, alias="POLL_DAY_START_HOUR")
     poll_day_end_hour: int = Field(default=23, alias="POLL_DAY_END_HOUR")
 
+    # --- Enrichment (Phase 4, §11) — runs AFTER/parallel to the alarm, never in
+    #     the critical path (§10). Vision hints only, never a verdict/price. ---
+    anthropic_api_key: str = Field(default="", alias="ANTHROPIC_API_KEY")
+    enrich_vision_enabled: bool = Field(default=True, alias="ENRICH_VISION_ENABLED")
+    enrich_vision_model: str = Field(
+        default="claude-opus-5", alias="ENRICH_VISION_MODEL"
+    )
+    # Hard cap on vision calls per poll to bound cost.
+    enrich_vision_max_per_poll: int = Field(
+        default=20, alias="ENRICH_VISION_MAX_PER_POLL"
+    )
+    # Max images sent per candidate to bound tokens.
+    enrich_vision_max_images: int = Field(
+        default=4, alias="ENRICH_VISION_MAX_IMAGES"
+    )
+
     # --- Discord (§8) ---
     discord_webhook_url: str = Field(default="", alias="DISCORD_WEBHOOK_URL")
 

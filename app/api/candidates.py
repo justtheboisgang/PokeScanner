@@ -76,6 +76,7 @@ def _load_detail(db: Session, candidate_id: int) -> Candidate:
             joinedload(Candidate.listing),
             joinedload(Candidate.reference_value).selectinload(ReferenceValue.comps),
             joinedload(Candidate.decision),
+            joinedload(Candidate.enrichment),
         )
     )
     candidate = db.scalars(stmt).unique().one_or_none()
@@ -98,6 +99,7 @@ def get_candidate(
         alert_sent_at=candidate.alert_sent_at,
         reference_value=candidate.reference_value,
         decision=candidate.decision,
+        enrichment=candidate.enrichment,
     )
 
 

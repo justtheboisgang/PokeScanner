@@ -7,6 +7,7 @@ schema builds on SQLite and the API can be integration-tested without Postgres.
 from __future__ import annotations
 
 from collections.abc import Iterator
+from contextlib import contextmanager
 
 import pytest
 from fastapi.testclient import TestClient
@@ -38,6 +39,25 @@ def engine():
 @pytest.fixture()
 def session_factory(engine) -> sessionmaker:
     return sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+
+
+@pytest.fixture()
+def scoped_factory(session_factory):
+    """A committing session context manager, matching app.db.session_scope."""
+
+    @contextmanager
+    def factory() -> Iterator[Session]:
+        session = session_factory()
+        try:
+            yield session
+            session.commit()
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    return factory
 
 
 @pytest.fixture()

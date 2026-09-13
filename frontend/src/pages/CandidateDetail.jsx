@@ -262,6 +262,37 @@ export default function CandidateDetail() {
             />
           </section>
 
+          {data.enrichment && (
+            <section className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+              <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-400">
+                Anreicherung <span className="text-slate-500">(Hinweis, keine Bewertung)</span>
+              </h2>
+              {data.enrichment.condition_flags.length > 0 ? (
+                <div className="mb-3 flex flex-wrap gap-1.5">
+                  {data.enrichment.condition_flags.map((f) => (
+                    <span
+                      key={f}
+                      className="rounded bg-amber-600/20 px-1.5 py-0.5 text-[11px] text-amber-300 ring-1 ring-amber-600/40"
+                    >
+                      {f}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <p className="mb-3 text-xs text-slate-500">
+                  keine Zustandshinweise im Text
+                </p>
+              )}
+              {data.enrichment.vision_summary ? (
+                <p className="whitespace-pre-wrap text-sm text-slate-300">
+                  👁️ {data.enrichment.vision_summary}
+                </p>
+              ) : (
+                <p className="text-xs text-slate-500">keine Vision-Triage</p>
+              )}
+            </section>
+          )}
+
           <section className="rounded-lg border border-slate-800 bg-slate-900 p-4 text-sm text-slate-400">
             <div className="flex justify-between">
               <span>Suchbegriff</span>

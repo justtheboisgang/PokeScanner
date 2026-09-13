@@ -33,6 +33,9 @@ class AlertContent:
     # Enrichment fields — in Phase 2 these describe "unbewertbar".
     profit_text: str = "unbewertbar — bitte selbst prüfen"
     cascade_text: str = "—"
+    # Phase 4 enrichment (advisory only, §10).
+    condition_flags: tuple[str, ...] = ()
+    vision_summary: str | None = None
 
 
 def _price_text(price: Decimal | None, currency: str) -> str:
@@ -55,12 +58,30 @@ def build_embed(content: AlertContent) -> dict:
             "value": content.matched_search_term or "—",
             "inline": True,
         },
+    ]
+    if content.condition_flags:
+        fields.append(
+            {
+                "name": "⚠️ Zustandshinweise (Text)",
+                "value": ", ".join(content.condition_flags),
+                "inline": False,
+            }
+        )
+    if content.vision_summary:
+        fields.append(
+            {
+                "name": "👁️ Vision-Triage (Hinweis, keine Bewertung)",
+                "value": content.vision_summary[:1024],
+                "inline": False,
+            }
+        )
+    fields.append(
         {
             "name": "📋 Kontaktnachricht (kopieren)",
             "value": f"```{contact_message()}```",
             "inline": False,
-        },
-    ]
+        }
+    )
     embed: dict = {
         "title": content.title[:256],
         "color": _EMBED_COLOR,

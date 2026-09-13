@@ -103,6 +103,16 @@ class CandidateFeedItem(BaseModel):
     verdict: Verdict | None
 
 
+class EnrichmentOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    condition_flags: list[str] = []
+    vision_summary: str | None
+    vision_model: str | None
+    vision_used: bool
+    enriched_at: datetime
+
+
 class CandidateDetail(BaseModel):
     id: int
     listing: ListingOut
@@ -112,6 +122,7 @@ class CandidateDetail(BaseModel):
     alert_sent_at: datetime | None
     reference_value: ReferenceValueOut | None
     decision: DecisionOut | None
+    enrichment: EnrichmentOut | None
 
 
 class JournalItem(BaseModel):

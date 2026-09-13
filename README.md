@@ -7,6 +7,27 @@ Bewertung gegen echte Verkaufsdaten und Alarmierung.
 > um Fundfrequenz pro Kanal und Time-to-Contact zu messen. Kaufentscheidungen
 > triffst du manuell.
 
+## Status: Phase 4 (Anreicherung)
+
+Vision-Triage + Textextraktion, **nach und parallel** zum Alarm — nie im
+kritischen Pfad (§10). Alle KI-Ausgaben sind **Hinweise, nie Entscheidung/Preis**.
+
+- **Textextraktion** (`app/enrich/text_extract.py`): deterministisch (kein LLM),
+  scannt Titel+Beschreibung auf Zustandsmängel („Knick", „Kratzer", „bespielt",
+  „Riss", …) → Flags.
+- **Vision-Triage** (`app/enrich/vision.py`): Claude **Opus 5** (`claude-opus-5`),
+  Bild-URLs → kurzer deutscher Triage-Hinweis. Prompt verbietet explizit Kauf-,
+  Zustands-, Echtheitsurteil und Preis (§10). Client injizierbar (ohne Netz
+  testbar).
+- **Enrichment-Service** (`app/enrich/service.py`): persistiert Flags + Vision-Note
+  (`enrichment`-Tabelle, Migration 0004) und **editiert das bestehende
+  Discord-Embed** (R1) statt einer zweiten Nachricht.
+- **Gating** (Pipeline): Textextraktion läuft immer; Vision nur bei Bildern und
+  bis zum konfigurierbaren Cap `ENRICH_VISION_MAX_PER_POLL` (Default 20) pro Poll.
+- **Sichtbar**: Anreicherung erscheint im Kandidaten-Detail (API + Frontend).
+- **Tests**: Textextraktion, Vision (Fake-Client: Summary/Refusal/Gating/
+  max-images), Enrichment-Service (SQLite + Fakes), API. 70 gesamt.
+
 ## Status: Phase 3 (Website)
 
 Review, Journal und Decision-Erfassung (§9, §11). Dunkles, aufgeräumtes UI.

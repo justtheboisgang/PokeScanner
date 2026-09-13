@@ -199,6 +199,23 @@ uvicorn app.main:app --reload   # :8000
 Mit Docker läuft alles zusammen (`db` + `migrate` + `api` + `worker`) via
 `docker compose up`; das Frontend wird separat gebaut/ausgeliefert.
 
+## Sicherheit
+
+Behobene Punkte (Review): Discord-**Mention-Injection** unterbunden
+(`allowed_mentions:{parse:[]}` — Verkäufertitel wie `@everyone` pingen nie);
+Bild-Fetch nur über **http/https** (kein `file://` etc.); Secrets nur via `.env`
+(nie im Code, R5); CORS konfigurierbar; SQL ausschließlich über SQLAlchemy-Parameter.
+
+Bewusste Restrisiken für dein Deployment:
+- **Keine API-Authentifizierung.** Die FastAPI-API ist offen — hinter Firewall/
+  Reverse-Proxy/VPN betreiben oder eine Auth-Schicht davorsetzen. Nicht offen ins
+  Internet stellen.
+- **SSRF-Rest:** Der Bild-Hash lädt marktplatz-gelieferte URLs serverseitig. Schema
+  ist auf http/https begrenzt, aber private/link-local IPs werden nicht geblockt.
+  Auf einem VPS ohne internes Netz vertretbar; sonst DNS/IP-Filter ergänzen.
+- **Account-Trennung (R5)** ist organisatorisch: Monitoring- vs. Handels-Accounts
+  strikt getrennt halten, Credentials pro Rolle in `.env`.
+
 ## Offene Punkte
 
 - **§9 vs. §5:** ✅ gelöst in Phase 3 — `reference_comp`-Tabelle (Migration 0003)

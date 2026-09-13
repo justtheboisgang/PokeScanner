@@ -61,7 +61,14 @@ class ImageHasher:
         self._client.close()
 
     def hash_url(self, url: str) -> str | None:
-        """Download and hash an image. None on any failure (never raises)."""
+        """Download and hash an image. None on any failure (never raises).
+
+        Only http/https are fetched — listing image URLs are attacker-controlled,
+        so file:// and other schemes are rejected. (Deeper SSRF hardening — e.g.
+        blocking private/link-local IPs — is a documented residual, see README.)
+        """
+        if not url.lower().startswith(("http://", "https://")):
+            return None
         try:
             resp = self._client.get(url)
             resp.raise_for_status()

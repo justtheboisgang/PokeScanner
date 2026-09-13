@@ -61,6 +61,20 @@ def test_image_hasher_returns_none_on_failure():
     assert hasher.hash_url("https://img/missing.png") is None
 
 
+def test_image_hasher_rejects_non_http_scheme():
+    called = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        called["n"] += 1
+        return httpx.Response(200, content=_png_bytes())
+
+    hasher = ImageHasher(transport=httpx.MockTransport(handler))
+    # file:// and other schemes must not be fetched (SSRF hygiene).
+    assert hasher.hash_url("file:///etc/passwd") is None
+    assert hasher.hash_url("ftp://internal/x") is None
+    assert called["n"] == 0
+
+
 def _listing_with_candidate(db, channel, ext, image_hash, price):
     listing = Listing(
         channel=channel,

@@ -127,7 +127,12 @@ class DiscordNotifier:
         resp = self._client.post(
             self.webhook_url,
             params={"wait": "true"},
-            json={"embeds": [build_embed(content)]},
+            # Suppress mention injection: listing titles are attacker-controlled,
+            # so a title like "@everyone" must never ping.
+            json={
+                "embeds": [build_embed(content)],
+                "allowed_mentions": {"parse": []},
+            },
         )
         resp.raise_for_status()
         body = resp.json()
@@ -140,6 +145,9 @@ class DiscordNotifier:
             return
         resp = self._client.patch(
             f"{self.webhook_url}/messages/{message_id}",
-            json={"embeds": [build_embed(content)]},
+            json={
+                "embeds": [build_embed(content)],
+                "allowed_mentions": {"parse": []},
+            },
         )
         resp.raise_for_status()

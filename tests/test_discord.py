@@ -66,6 +66,25 @@ def test_send_returns_message_id_and_uses_wait():
     assert "embeds" in seen["json"]
 
 
+def test_send_suppresses_mentions():
+    import json
+    from dataclasses import replace
+
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["body"] = json.loads(request.read().decode())
+        return httpx.Response(200, json={"id": "1"})
+
+    notifier = DiscordNotifier(
+        "https://discord.com/api/webhooks/1/abc",
+        transport=httpx.MockTransport(handler),
+    )
+    # Attacker-controlled title must never ping.
+    notifier.send(replace(_content(), title="@everyone free cards"))
+    assert seen["body"]["allowed_mentions"] == {"parse": []}
+
+
 def test_send_noop_when_disabled():
     notifier = DiscordNotifier("")
     assert notifier.enabled is False

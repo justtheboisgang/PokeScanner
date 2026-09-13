@@ -39,16 +39,20 @@ class _ApifySource:
         apify: ApifyClient,
         actor: str,
         max_items: int,
+        input_template: str = "",
     ) -> None:
         self.channel = channel
         self.name = name
         self.apify = apify
         self.actor = actor
         self.max_items = max_items
+        self.input_template = input_template
 
     def fetch(self, query: str) -> list[NormalizedListing]:
         items = self.apify.run_actor_get_items(
-            self.actor, build_run_input(query), max_items=self.max_items
+            self.actor,
+            build_run_input(query, self.input_template),
+            max_items=self.max_items,
         )
         out: list[NormalizedListing] = []
         for item in items:
@@ -59,8 +63,12 @@ class _ApifySource:
 
 
 class KleinanzeigenSource(_ApifySource):
-    def __init__(self, apify: ApifyClient, actor: str, max_items: int) -> None:
-        super().__init__(Channel.KLEINANZEIGEN, "kleinanzeigen", apify, actor, max_items)
+    def __init__(
+        self, apify: ApifyClient, actor: str, max_items: int, input_template: str = ""
+    ) -> None:
+        super().__init__(
+            Channel.KLEINANZEIGEN, "kleinanzeigen", apify, actor, max_items, input_template
+        )
 
 
 class WillhabenSource(_ApifySource):
@@ -97,6 +105,7 @@ def build_sources(settings: Settings | None = None) -> list[Source]:
                 ApifyClient(),
                 settings.apify_kleinanzeigen_actor,
                 settings.apify_max_items_per_query,
+                settings.apify_kleinanzeigen_input,
             )
         )
     if settings.willhaben_enabled and settings.apify_willhaben_actor:

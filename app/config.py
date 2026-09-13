@@ -77,7 +77,14 @@ class Settings(BaseSettings):
     apify_token: str = Field(default="", alias="APIFY_TOKEN")
     apify_base_url: str = Field(default="https://api.apify.com/v2", alias="APIFY_BASE_URL")
     apify_kleinanzeigen_actor: str = Field(
-        default="", alias="APIFY_KLEINANZEIGEN_ACTOR"
+        default="beatanalytics~kleinanzeigen-scraper",
+        alias="APIFY_KLEINANZEIGEN_ACTOR",
+    )
+    # Optional JSON template for the actor input; "{{query}}" is replaced with the
+    # search term. Empty = a sensible default (search/query/keyword). Use this to
+    # match a specific actor's input schema without touching code.
+    apify_kleinanzeigen_input: str = Field(
+        default="", alias="APIFY_KLEINANZEIGEN_INPUT"
     )
     # Cap items per query to bound Apify cost (Plan-Guthaben + Actor-Gebühren).
     apify_max_items_per_query: int = Field(

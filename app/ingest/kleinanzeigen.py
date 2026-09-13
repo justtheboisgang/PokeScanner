@@ -7,6 +7,7 @@ candidate keys are tried per field, and the full raw item is preserved in
 
 from __future__ import annotations
 
+import json
 import re
 from decimal import Decimal, InvalidOperation
 
@@ -126,10 +127,13 @@ def normalize(item: dict) -> NormalizedListing | None:
     return normalize_apify_item(item, Channel.KLEINANZEIGEN)
 
 
-def build_run_input(query: str) -> dict:
+def build_run_input(query: str, template: str | None = None) -> dict:
     """Build the actor input for one search term.
 
-    Generic shape (`search`/`query`/`keyword` all set) so it fits common
-    Kleinanzeigen actors without per-actor branching. Adjust for your actor.
+    If `template` (JSON) is given, "{{query}}" in it is replaced with the term —
+    lets you match a specific actor's schema via config. Otherwise a generic shape
+    (`search`/`query`/`keyword` all set) that fits common Kleinanzeigen actors.
     """
+    if template and template.strip():
+        return json.loads(template.replace("{{query}}", query))
     return {"search": query, "query": query, "keyword": query}

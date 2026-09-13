@@ -77,7 +77,7 @@ class Settings(BaseSettings):
     apify_token: str = Field(default="", alias="APIFY_TOKEN")
     apify_base_url: str = Field(default="https://api.apify.com/v2", alias="APIFY_BASE_URL")
     apify_kleinanzeigen_actor: str = Field(
-        default="beatanalytics~kleinanzeigen-scraper",
+        default="lexis-solutions~ebay-kleinanzeigen",
         alias="APIFY_KLEINANZEIGEN_ACTOR",
     )
     # Optional JSON template for the actor input; "{{query}}" is replaced with the

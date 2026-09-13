@@ -6,10 +6,11 @@ from decimal import Decimal
 
 from app.ingest.kleinanzeigen import (
     normalize,
+    normalize_lexis_item,
     parse_price,
     parse_seller_type,
 )
-from app.models.enums import SellerType
+from app.models.enums import Channel, SellerType
 
 
 def test_parse_price_variants():
@@ -63,3 +64,35 @@ def test_normalize_falls_back_to_url_as_id():
 def test_normalize_returns_none_without_id_or_title():
     assert normalize({"title": "x"}) is None  # no id, no url
     assert normalize({"adId": "1"}) is None  # no title
+
+
+def test_normalize_lexis_item():
+    item = {
+        "id": "2910159582",
+        "url": "https://kleinanzeigen.de/s-anzeige/x/2910159582-154-19706",
+        "title": "Alte Pokemon Karten Sammlung",
+        "price": "59.00",  # English decimal — must NOT become 5900
+        "priceCurrency": "EUR",
+        "address": "10115 Berlin",
+        "descriptionText": "Vom Dachboden, ein Knick",
+        "primaryImageURL": "https://img/p.jpg",
+        "imageURLs": ["https://img/p.jpg", "https://img/2.jpg"],
+    }
+    n = normalize_lexis_item(item)
+    assert n is not None
+    assert n.channel == Channel.KLEINANZEIGEN
+    assert n.external_id == "2910159582"
+    assert n.price == Decimal("59.00")
+    assert n.location == "10115 Berlin"
+    assert n.images == ["https://img/p.jpg", "https://img/2.jpg"]  # deduped
+    assert n.seller_type == SellerType.PRIVATE
+
+
+def test_normalize_lexis_commercial_when_company_info():
+    item = {"id": "1", "title": "x", "price": "10.00", "companyInfo": {"companyName": "GmbH"}}
+    assert normalize_lexis_item(item).seller_type == SellerType.COMMERCIAL
+
+
+def test_normalize_lexis_requires_id_and_title():
+    assert normalize_lexis_item({"title": "x"}) is None
+    assert normalize_lexis_item({"id": "1"}) is None

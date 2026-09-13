@@ -123,8 +123,61 @@ def normalize_apify_item(item: dict, channel: Channel) -> NormalizedListing | No
 
 
 def normalize(item: dict) -> NormalizedListing | None:
-    """Normalize a Kleinanzeigen actor item."""
+    """Normalize a Kleinanzeigen actor item (generic fallback)."""
     return normalize_apify_item(item, Channel.KLEINANZEIGEN)
+
+
+def _plain_decimal(value: object) -> Decimal | None:
+    """Parse a plain decimal string like '59.00' (English decimal point)."""
+    if value is None or value == "":
+        return None
+    try:
+        d = Decimal(str(value))
+    except (InvalidOperation, ValueError):
+        return None
+    return d if d >= 0 else None
+
+
+def normalize_lexis_item(item: dict) -> NormalizedListing | None:
+    """Normalize an item from lexis-solutions/ebay-kleinanzeigen.
+
+    Field names taken from that actor's documented output; prices are plain
+    decimal strings ("59.00"), so they are parsed directly (not via the German
+    thousands/decimal parser).
+    """
+    ext = item.get("id") or item.get("url")
+    title = item.get("title")
+    if ext is None or not title:
+        return None
+
+    images: list[str] = []
+    primary = item.get("primaryImageURL")
+    if primary:
+        images.append(str(primary))
+    for url in item.get("imageURLs") or []:
+        if url and str(url) not in images:
+            images.append(str(url))
+
+    # A private Kleinanzeigen seller has no companyInfo block.
+    seller_type = (
+        SellerType.COMMERCIAL if item.get("companyInfo") else SellerType.PRIVATE
+    )
+
+    return NormalizedListing(
+        channel=Channel.KLEINANZEIGEN,
+        external_id=str(ext),
+        title=str(title),
+        description=(
+            str(item["descriptionText"]) if item.get("descriptionText") else None
+        ),
+        price=_plain_decimal(item.get("price")),
+        currency=str(item.get("priceCurrency") or "EUR"),
+        location=(str(item["address"]) if item.get("address") else None),
+        seller_type=seller_type,
+        images=images,
+        url=(str(item["url"]) if item.get("url") else None),
+        raw_payload=item,
+    )
 
 
 def build_kleinanzeigen_search_url(query: str) -> str:

@@ -14,11 +14,19 @@ from app.clients.apify import ApifyClient
 from app.clients.ebay import EbayBrowseClient
 from app.config import Settings, get_settings
 from app.ingest.ebay_browse import normalize_ebay_item
-from app.ingest.kleinanzeigen import build_run_input, normalize_apify_item
+from app.ingest.kleinanzeigen import (
+    build_run_input,
+    normalize_apify_item,
+    normalize_lexis_item,
+)
 from app.ingest.normalized import NormalizedListing
 from app.models.enums import Channel
 
 logger = logging.getLogger(__name__)
+
+# Default actor input for lexis-solutions/ebay-kleinanzeigen: one search-results
+# URL per term. {{search_url}} is filled by build_run_input.
+_LEXIS_DEFAULT_INPUT = '{"startUrls":[{"url":"{{search_url}}"}]}'
 
 
 class Source(Protocol):
@@ -39,6 +47,7 @@ class _ApifySource:
         apify: ApifyClient,
         actor: str,
         max_items: int,
+        normalize_fn,
         input_template: str = "",
     ) -> None:
         self.channel = channel
@@ -46,6 +55,7 @@ class _ApifySource:
         self.apify = apify
         self.actor = actor
         self.max_items = max_items
+        self.normalize_fn = normalize_fn
         self.input_template = input_template
 
     def fetch(self, query: str) -> list[NormalizedListing]:
@@ -56,7 +66,7 @@ class _ApifySource:
         )
         out: list[NormalizedListing] = []
         for item in items:
-            normalized = normalize_apify_item(item, self.channel)
+            normalized = self.normalize_fn(item)
             if normalized is not None:
                 out.append(normalized)
         return out
@@ -67,13 +77,26 @@ class KleinanzeigenSource(_ApifySource):
         self, apify: ApifyClient, actor: str, max_items: int, input_template: str = ""
     ) -> None:
         super().__init__(
-            Channel.KLEINANZEIGEN, "kleinanzeigen", apify, actor, max_items, input_template
+            Channel.KLEINANZEIGEN,
+            "kleinanzeigen",
+            apify,
+            actor,
+            max_items,
+            normalize_lexis_item,
+            input_template or _LEXIS_DEFAULT_INPUT,
         )
 
 
 class WillhabenSource(_ApifySource):
     def __init__(self, apify: ApifyClient, actor: str, max_items: int) -> None:
-        super().__init__(Channel.WILLHABEN, "willhaben", apify, actor, max_items)
+        super().__init__(
+            Channel.WILLHABEN,
+            "willhaben",
+            apify,
+            actor,
+            max_items,
+            lambda item: normalize_apify_item(item, Channel.WILLHABEN),
+        )
 
 
 class EbayBrowseSource:

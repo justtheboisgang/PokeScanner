@@ -1,0 +1,24 @@
+# Never bake secrets or bulky/irrelevant files into the image.
+.env
+*.env
+!.env.example
+
+.git
+.gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Frontend (built/served separately)
+frontend/node_modules/
+frontend/dist/
+node_modules/
+
+# Local DB volume
+pgdata/

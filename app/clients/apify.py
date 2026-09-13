@@ -68,7 +68,10 @@ class ApifyClient:
                 "Apify rate limited",
                 retry_after=float(retry_after) if retry_after else None,
             )
-        resp.raise_for_status()
+        if resp.status_code >= 400:
+            # Surface Apify's own error message (e.g. token invalid, actor must
+            # be rented, actor requires a paid plan).
+            raise ClientError(f"Apify error {resp.status_code}: {resp.text[:400]}")
         body = resp.json()
         if isinstance(body, list):
             return body

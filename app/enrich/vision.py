@@ -4,13 +4,19 @@ Advisory ONLY: the prompt forbids any buy/condition/authenticity decision and an
 price. Output is a short German note for pre-sorting. Runs after the alarm, never
 in the critical path.
 
-The Anthropic client is injectable so this is testable without network/credentials.
+Images are downloaded here and sent as base64 (not as URLs): marketplace image
+hosts often block or time out Anthropic's server-side fetch, so we fetch them
+ourselves. The Anthropic client and the HTTP transport are injectable so this is
+testable without network/credentials.
 """
 
 from __future__ import annotations
 
+import base64
 import logging
 from dataclasses import dataclass
+
+import httpx
 
 from app.config import get_settings
 
@@ -25,6 +31,9 @@ _SYSTEM_PROMPT = (
     "WICHTIG: Triff KEINE Kauf-, Zustands- oder Echtheitsentscheidung und nenne "
     "KEINEN Preis. Nur Hinweise zur Vorsortierung."
 )
+
+# Anthropic accepts these image media types.
+_ALLOWED_MEDIA = {"image/jpeg", "image/png", "image/gif", "image/webp"}
 
 
 @dataclass(frozen=True)
@@ -42,6 +51,9 @@ class VisionAnalyzer:
         enabled: bool | None = None,
         max_images: int | None = None,
         client=None,
+        http_transport: httpx.BaseTransport | None = None,
+        http_timeout: float = 20.0,
+        max_image_bytes: int = 5_000_000,
     ) -> None:
         settings = get_settings()
         self.model = model or settings.enrich_vision_model
@@ -52,14 +64,14 @@ class VisionAnalyzer:
             settings.enrich_vision_enabled if enabled is None else enabled
         )
         self._client = client
-        self._api_key = (
-            api_key if api_key is not None else settings.anthropic_api_key
+        self._api_key = api_key if api_key is not None else settings.anthropic_api_key
+        self._http = httpx.Client(
+            transport=http_transport, timeout=http_timeout, follow_redirects=True
         )
+        self.max_image_bytes = max_image_bytes
 
     @property
     def enabled(self) -> bool:
-        # Enabled if the flag is on AND we can obtain a client (injected, explicit
-        # key, or an ambient credential the SDK can resolve).
         return self._enabled_flag and (
             self._client is not None or bool(self._api_key) or _has_ambient_credential()
         )
@@ -76,17 +88,44 @@ class VisionAnalyzer:
         )
         return self._client
 
+    def _fetch_image_block(self, url: str) -> dict | None:
+        """Download an image and return an Anthropic base64 image block, or None."""
+        try:
+            resp = self._http.get(url)
+            resp.raise_for_status()
+            data = resp.content
+            if not data or len(data) > self.max_image_bytes:
+                return None
+            media = (resp.headers.get("content-type") or "").split(";")[0].strip().lower()
+            if media not in _ALLOWED_MEDIA:
+                media = "image/jpeg"
+            return {
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": media,
+                    "data": base64.standard_b64encode(data).decode("ascii"),
+                },
+            }
+        except Exception:
+            logger.info("vision image download failed for %s", url, exc_info=True)
+            return None
+
     def analyze(
         self, image_urls: list[str], *, title: str, description: str | None = None
     ) -> VisionResult | None:
-        """Return an advisory triage note, or None if disabled/no images/failure."""
+        """Return an advisory triage note, or None if disabled/no usable image/failure."""
         if not self._enabled_flag or not image_urls:
             return None
 
-        content: list[dict] = [
-            {"type": "image", "source": {"type": "url", "url": url}}
-            for url in image_urls[: self.max_images]
-        ]
+        content: list[dict] = []
+        for url in image_urls[: self.max_images]:
+            block = self._fetch_image_block(url)
+            if block is not None:
+                content.append(block)
+        if not content:
+            return None  # no image could be downloaded
+
         listing_text = f"Titel: {title}"
         if description:
             listing_text += f"\nBeschreibung: {description}"
@@ -122,4 +161,6 @@ class VisionAnalyzer:
 def _has_ambient_credential() -> bool:
     import os
 
-    return bool(os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN"))
+    return bool(
+        os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN")
+    )

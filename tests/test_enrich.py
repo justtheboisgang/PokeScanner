@@ -6,6 +6,8 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from types import SimpleNamespace
 
+import httpx
+
 from app.alerts.discord import DiscordNotifier
 from app.enrich.service import EnrichmentService
 from app.enrich.text_extract import extract_condition_flags
@@ -59,43 +61,68 @@ def _text_response(text, stop_reason="end_turn"):
     )
 
 
+def _img_transport(status=200):
+    """MockTransport returning fake JPEG bytes for any image download."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            status, content=b"FAKEJPEGDATA", headers={"content-type": "image/jpeg"}
+        )
+
+    return httpx.MockTransport(handler)
+
+
 def test_vision_analyze_returns_summary():
     client = _FakeClient(_text_response("Sieht nach e-Serie aus, deutsche Karten."))
-    analyzer = VisionAnalyzer(model="claude-opus-5", enabled=True, client=client)
+    analyzer = VisionAnalyzer(
+        model="claude-opus-5", enabled=True, client=client, http_transport=_img_transport()
+    )
     result = analyzer.analyze(
         ["https://img/1.jpg", "https://img/2.jpg"], title="Alte Pokemon Karten"
     )
     assert result is not None
     assert "e-Serie" in result.summary
     assert result.model == "claude-opus-5"
-    # Image blocks + one text block sent.
+    # Two downloaded base64 image blocks + one text block sent.
     sent = client.messages.calls[0]["messages"][0]["content"]
-    assert sum(1 for b in sent if b["type"] == "image") == 2
+    images = [b for b in sent if b["type"] == "image"]
+    assert len(images) == 2
+    assert images[0]["source"]["type"] == "base64"
 
 
 def test_vision_respects_max_images():
     client = _FakeClient(_text_response("ok"))
-    analyzer = VisionAnalyzer(enabled=True, client=client, max_images=1)
-    analyzer.analyze(["a", "b", "c"], title="x")
+    analyzer = VisionAnalyzer(
+        enabled=True, client=client, max_images=1, http_transport=_img_transport()
+    )
+    analyzer.analyze(["https://img/a.jpg", "https://img/b.jpg"], title="x")
     images = [b for b in client.messages.calls[0]["messages"][0]["content"] if b["type"] == "image"]
     assert len(images) == 1
 
 
 def test_vision_refusal_returns_none():
     client = _FakeClient(_text_response("", stop_reason="refusal"))
-    analyzer = VisionAnalyzer(enabled=True, client=client)
-    assert analyzer.analyze(["a"], title="x") is None
+    analyzer = VisionAnalyzer(enabled=True, client=client, http_transport=_img_transport())
+    assert analyzer.analyze(["https://img/a.jpg"], title="x") is None
+
+
+def test_vision_returns_none_when_images_undownloadable():
+    client = _FakeClient(_text_response("should not be used"))
+    analyzer = VisionAnalyzer(
+        enabled=True, client=client, http_transport=_img_transport(status=404)
+    )
+    assert analyzer.analyze(["https://img/a.jpg"], title="x") is None
 
 
 def test_vision_disabled_returns_none():
     client = _FakeClient(_text_response("should not be used"))
-    analyzer = VisionAnalyzer(enabled=False, client=client)
-    assert analyzer.analyze(["a"], title="x") is None
+    analyzer = VisionAnalyzer(enabled=False, client=client, http_transport=_img_transport())
+    assert analyzer.analyze(["https://img/a.jpg"], title="x") is None
 
 
 def test_vision_no_images_returns_none():
     client = _FakeClient(_text_response("x"))
-    analyzer = VisionAnalyzer(enabled=True, client=client)
+    analyzer = VisionAnalyzer(enabled=True, client=client, http_transport=_img_transport())
     assert analyzer.analyze([], title="x") is None
 
 
@@ -144,7 +171,11 @@ def test_enrich_stores_flags_and_runs_vision_and_edits_embed(scoped_factory, db)
         db, images=["https://img/1.jpg"], description="mit Knick und Kratzer"
     )
     notifier = _FakeNotifier()
-    vision = VisionAnalyzer(enabled=True, client=_FakeClient(_text_response("e-Serie, DE")))
+    vision = VisionAnalyzer(
+        enabled=True,
+        client=_FakeClient(_text_response("e-Serie, DE")),
+        http_transport=_img_transport(),
+    )
     service = EnrichmentService(vision, notifier, session_factory=scoped_factory)
 
     outcome = service.enrich(cand_id, allow_vision=True)

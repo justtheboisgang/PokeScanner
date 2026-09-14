@@ -58,3 +58,6 @@ class Candidate(Base):
     enrichment: Mapped["Enrichment | None"] = relationship(  # noqa: F821
         back_populates="candidate", uselist=False, cascade="all, delete-orphan"
     )
+    cards: Mapped[list["CandidateCard"]] = relationship(  # noqa: F821
+        back_populates="candidate", cascade="all, delete-orphan"
+    )

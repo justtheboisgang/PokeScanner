@@ -16,6 +16,13 @@ export const api = {
   listCandidates: ({ undecidedOnly = false } = {}) =>
     request(`/candidates?undecided_only=${undecidedOnly}`),
   getCandidate: (id) => request(`/candidates/${id}`),
+  searchTcgdex: (q, lang = "de") =>
+    request(`/tcgdex/search?q=${encodeURIComponent(q)}&lang=${lang}`),
+  evaluateCandidate: (id, cards) =>
+    request(`/candidates/${id}/evaluate`, {
+      method: "POST",
+      body: JSON.stringify({ cards }),
+    }),
   putDecision: (id, body) =>
     request(`/candidates/${id}/decision`, {
       method: "PUT",

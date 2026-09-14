@@ -8,16 +8,24 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload, selectinload
 
+from decimal import Decimal
+
 from app.api.deps import get_db
 from app.api.schemas import (
+    CandidateCardOut,
     CandidateDetail,
     CandidateFeedItem,
     DecisionIn,
     DecisionOut,
+    EvaluateRequest,
+    EvaluationResponse,
 )
 from app.models.candidate import Candidate
+from app.models.candidate_card import CandidateCard
+from app.models.card import Variant
 from app.models.decision import Decision
 from app.models.reference_value import ReferenceValue
+from app.pricing.evaluate import CardEntry, evaluate_candidate
 
 router = APIRouter(prefix="/api/candidates", tags=["candidates"])
 
@@ -77,6 +85,12 @@ def _load_detail(db: Session, candidate_id: int) -> Candidate:
             joinedload(Candidate.reference_value).selectinload(ReferenceValue.comps),
             joinedload(Candidate.decision),
             joinedload(Candidate.enrichment),
+            selectinload(Candidate.cards)
+            .joinedload(CandidateCard.variant)
+            .joinedload(Variant.card),
+            selectinload(Candidate.cards)
+            .joinedload(CandidateCard.reference_value)
+            .selectinload(ReferenceValue.comps),
         )
     )
     candidate = db.scalars(stmt).unique().one_or_none()
@@ -85,11 +99,29 @@ def _load_detail(db: Session, candidate_id: int) -> Candidate:
     return candidate
 
 
-@router.get("/{candidate_id}", response_model=CandidateDetail)
-def get_candidate(
-    candidate_id: int, db: Session = Depends(get_db)
-) -> CandidateDetail:
-    candidate = _load_detail(db, candidate_id)
+def _card_out(cc: CandidateCard) -> CandidateCardOut:
+    card = cc.variant.card
+    return CandidateCardOut(
+        id=cc.id,
+        name=card.name,
+        set=card.set,
+        number=card.number,
+        language=cc.variant.language,
+        condition=cc.variant.condition,
+        printing=cc.variant.printing,
+        quantity=cc.quantity,
+        reference_value=cc.reference_value,
+    )
+
+
+def _detail(candidate: Candidate) -> CandidateDetail:
+    cards = [_card_out(cc) for cc in candidate.cards]
+    total = Decimal("0")
+    have = False
+    for cc in candidate.cards:
+        if cc.reference_value is not None:
+            total += Decimal(cc.reference_value.value) * cc.quantity
+            have = True
     return CandidateDetail(
         id=candidate.id,
         listing=candidate.listing,
@@ -100,6 +132,44 @@ def get_candidate(
         reference_value=candidate.reference_value,
         decision=candidate.decision,
         enrichment=candidate.enrichment,
+        cards=cards,
+        cards_total_value_eur=(total if have else None),
+    )
+
+
+@router.get("/{candidate_id}", response_model=CandidateDetail)
+def get_candidate(
+    candidate_id: int, db: Session = Depends(get_db)
+) -> CandidateDetail:
+    return _detail(_load_detail(db, candidate_id))
+
+
+@router.post("/{candidate_id}/evaluate", response_model=EvaluationResponse)
+def evaluate(
+    candidate_id: int, payload: EvaluateRequest, db: Session = Depends(get_db)
+) -> EvaluationResponse:
+    """Manual evaluation (Block 2.3): run the cascade for operator-identified cards."""
+    candidate = _load_detail(db, candidate_id)
+    entries = [
+        CardEntry(
+            tcgdex_id=c.tcgdex_id,
+            name=c.name,
+            set=c.set,
+            number=c.number,
+            language=c.language,
+            condition=c.condition,
+            printing=c.printing,
+            quantity=c.quantity,
+        )
+        for c in payload.cards
+    ]
+    result = evaluate_candidate(db, candidate, entries)
+    db.commit()
+    return EvaluationResponse(
+        total_value_eur=result.total_value_eur,
+        estimated_profit_eur=result.estimated_profit_eur,
+        soldcomps_active=result.soldcomps_active,
+        note=result.note,
     )
 
 

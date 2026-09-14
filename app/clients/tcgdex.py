@@ -86,6 +86,28 @@ class TCGdexClient:
     def close(self) -> None:
         self._client.close()
 
+    def search_cards(
+        self, query: str, lang: str | None = None, *, limit: int = 15
+    ) -> list[dict]:
+        """Search cards by name for autocomplete. Returns brief card dicts.
+
+        Uses TCGdex filtering (`?name=like:<q>`); falls back to an empty list on
+        error. Each item has at least `id` and `name` (and usually `image`).
+        """
+        lang = lang or self.primary_lang
+        query = query.strip()
+        if not query:
+            return []
+        resp = self._client.get(
+            f"/{lang}/cards",
+            params={"name": f"like:{query}", "pagination:itemsPerPage": limit},
+        )
+        if resp.status_code == 404:
+            return []
+        resp.raise_for_status()
+        data = resp.json()
+        return list(data)[:limit] if isinstance(data, list) else []
+
     def get_card(self, card_id: str, lang: str | None = None) -> dict | None:
         """Fetch one card. Returns None on 404 (card not in that language)."""
         lang = lang or self.primary_lang

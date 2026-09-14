@@ -52,11 +52,13 @@ class Settings(BaseSettings):
     # --- Reference value cascade (§6) ---
     cascade_min_sample_size: int = Field(default=5, alias="CASCADE_MIN_SAMPLE_SIZE")
     cascade_window_days: int = Field(default=90, alias="CASCADE_WINDOW_DAYS")
+    # Zustandsfaktor mixed->played (2.4). Empirisch zu messen, Startwert konservativ.
     cascade_condition_factor: Decimal = Field(
-        default=Decimal("0.6"), alias="CASCADE_CONDITION_FACTOR"
+        default=Decimal("0.70"), alias="CASCADE_CONDITION_FACTOR"
     )
+    # Sprachfaktor DE aus EN-Comps (2.4). Empirisch zu messen, Startwert konservativ.
     cascade_language_factor: Decimal = Field(
-        default=Decimal("0.8"), alias="CASCADE_LANGUAGE_FACTOR"
+        default=Decimal("0.65"), alias="CASCADE_LANGUAGE_FACTOR"
     )
 
     # --- Alert / buy thresholds (§7) ---

@@ -102,6 +102,8 @@ class SoldCompsClient:
         self._client = httpx.Client(
             base_url=self.base_url, transport=transport, timeout=timeout, headers=headers
         )
+        # Count HTTP requests made so callers can record per-request cost.
+        self.request_count = 0
 
     def __enter__(self) -> "SoldCompsClient":
         return self
@@ -154,6 +156,7 @@ class SoldCompsClient:
 
     def _get(self, path: str, params: dict, *, batch: bool) -> dict:
         self._throttle()
+        self.request_count += 1
         try:
             resp = self._client.get(
                 path, params=params, headers=self._extra_headers(batch=batch)

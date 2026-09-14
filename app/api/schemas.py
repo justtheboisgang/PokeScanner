@@ -12,6 +12,7 @@ from app.models.enums import (
     Condition,
     CounterfeitCheck,
     Language,
+    Printing,
     ReferenceSource,
     SellerType,
     Verdict,
@@ -113,6 +114,18 @@ class EnrichmentOut(BaseModel):
     enriched_at: datetime
 
 
+class CandidateCardOut(BaseModel):
+    id: int
+    name: str
+    set: str | None
+    number: str | None
+    language: Language
+    condition: Condition
+    printing: Printing
+    quantity: int
+    reference_value: ReferenceValueOut | None
+
+
 class CandidateDetail(BaseModel):
     id: int
     listing: ListingOut
@@ -123,6 +136,36 @@ class CandidateDetail(BaseModel):
     reference_value: ReferenceValueOut | None
     decision: DecisionOut | None
     enrichment: EnrichmentOut | None
+    cards: list[CandidateCardOut] = []
+    cards_total_value_eur: Decimal | None = None
+
+
+class TcgdexCardOut(BaseModel):
+    id: str
+    name: str
+    image: str | None = None
+
+
+class EvaluateCardIn(BaseModel):
+    tcgdex_id: str | None = None
+    name: str
+    set: str | None = None
+    number: str | None = None
+    language: Language
+    condition: Condition
+    printing: Printing = Printing.NORMAL
+    quantity: int = 1
+
+
+class EvaluateRequest(BaseModel):
+    cards: list[EvaluateCardIn]
+
+
+class EvaluationResponse(BaseModel):
+    total_value_eur: Decimal | None
+    estimated_profit_eur: Decimal | None
+    soldcomps_active: bool
+    note: str | None
 
 
 class InventoryItem(BaseModel):

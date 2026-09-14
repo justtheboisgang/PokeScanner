@@ -10,6 +10,159 @@ const COUNTERFEIT_OPTIONS = [
   { value: "not_checked", label: "nicht geprüft" },
 ];
 
+const LANGS = ["de", "en"];
+const CONDITIONS = ["mint", "near_mint", "excellent", "good", "light_played", "played", "poor", "unknown"];
+const PRINTINGS = ["normal", "holo", "reverse_holo", "first_edition", "unlimited", "unknown"];
+
+function EvaluateSection({ candidateId, cards, totalValue, estimatedProfit, onEvaluated }) {
+  const [query, setQuery] = useState("");
+  const [suggestions, setSuggestions] = useState([]);
+  const [staged, setStaged] = useState([]);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState(null);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    if (query.trim().length < 2) {
+      setSuggestions([]);
+      return;
+    }
+    let alive = true;
+    const t = setTimeout(() => {
+      api.searchTcgdex(query).then((r) => alive && setSuggestions(r)).catch(() => {});
+    }, 250);
+    return () => {
+      alive = false;
+      clearTimeout(t);
+    };
+  }, [query]);
+
+  const addCard = (s) => {
+    setStaged((prev) => [
+      ...prev,
+      { tcgdex_id: s.id, name: s.name, language: "de", condition: "played", printing: "normal", quantity: 1 },
+    ]);
+    setQuery("");
+    setSuggestions([]);
+  };
+  const updateStaged = (i, patch) =>
+    setStaged((prev) => prev.map((c, idx) => (idx === i ? { ...c, ...patch } : c)));
+  const removeStaged = (i) => setStaged((prev) => prev.filter((_, idx) => idx !== i));
+
+  const runEvaluate = async () => {
+    if (staged.length === 0) return;
+    setBusy(true);
+    setError(null);
+    setNote(null);
+    try {
+      const res = await api.evaluateCandidate(candidateId, staged);
+      setNote(res.note);
+      setStaged([]);
+      onEvaluated();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+      <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-400">
+        Karten identifizieren &amp; bewerten
+      </h2>
+
+      {cards.length > 0 && (
+        <div className="mb-4 space-y-2">
+          {cards.map((c) => (
+            <div key={c.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-800 bg-slate-950/40 px-3 py-2 text-sm">
+              <span className="font-medium">{c.name}</span>
+              <span className="text-slate-500">{c.language} · {c.condition} · {c.printing} · ×{c.quantity}</span>
+              <span className="ml-auto">
+                {c.reference_value ? (
+                  <span className="text-emerald-300">
+                    {formatEuro(c.reference_value.value)} <span className="text-slate-500">(Stufe {c.reference_value.cascade_level} · n={c.reference_value.sample_size})</span>
+                  </span>
+                ) : (
+                  <span className="text-slate-500">unbewertbar</span>
+                )}
+              </span>
+            </div>
+          ))}
+          <div className="flex flex-wrap gap-4 border-t border-slate-800 pt-2 text-sm">
+            <span>Listing-Wert: <b>{totalValue == null ? "—" : formatEuro(totalValue)}</b></span>
+            <span>
+              Gesch. Gewinn:{" "}
+              <b className={estimatedProfit != null && Number(estimatedProfit) >= 0 ? "text-emerald-300" : "text-rose-300"}>
+                {estimatedProfit == null ? "—" : formatEuro(estimatedProfit)}
+              </b>
+            </span>
+          </div>
+        </div>
+      )}
+
+      <div className="relative">
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Karte suchen (TCGdex), z.B. Glurak…"
+          className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm"
+        />
+        {suggestions.length > 0 && (
+          <div className="absolute z-10 mt-1 max-h-64 w-full overflow-auto rounded-lg border border-slate-700 bg-slate-800 shadow-xl">
+            {suggestions.map((s) => (
+              <button
+                key={s.id}
+                onClick={() => addCard(s)}
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-slate-700"
+              >
+                {s.image && <img src={s.image} alt="" className="h-10 w-8 rounded object-cover" />}
+                <span>{s.name}</span>
+                <span className="ml-auto text-xs text-slate-500">{s.id}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {staged.length > 0 && (
+        <div className="mt-3 space-y-2">
+          {staged.map((c, i) => (
+            <div key={i} className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-800 bg-slate-950/40 px-2 py-2 text-xs">
+              <span className="font-medium">{c.name}</span>
+              <select value={c.language} onChange={(e) => updateStaged(i, { language: e.target.value })} className="rounded border border-slate-700 bg-slate-800 px-1.5 py-1">
+                {LANGS.map((l) => <option key={l}>{l}</option>)}
+              </select>
+              <select value={c.condition} onChange={(e) => updateStaged(i, { condition: e.target.value })} className="rounded border border-slate-700 bg-slate-800 px-1.5 py-1">
+                {CONDITIONS.map((l) => <option key={l}>{l}</option>)}
+              </select>
+              <select value={c.printing} onChange={(e) => updateStaged(i, { printing: e.target.value })} className="rounded border border-slate-700 bg-slate-800 px-1.5 py-1">
+                {PRINTINGS.map((l) => <option key={l}>{l}</option>)}
+              </select>
+              <input type="number" min="1" value={c.quantity} onChange={(e) => updateStaged(i, { quantity: Number(e.target.value) })} className="w-14 rounded border border-slate-700 bg-slate-800 px-1.5 py-1" />
+              <button onClick={() => removeStaged(i)} className="ml-auto text-rose-400 hover:underline">entfernen</button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {error && <p className="mt-2 text-sm text-rose-400">{error}</p>}
+      {note && <p className="mt-2 text-sm text-amber-400">{note}</p>}
+
+      <button
+        onClick={runEvaluate}
+        disabled={busy || staged.length === 0}
+        className="mt-3 w-full rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-40"
+      >
+        {busy ? "bewertet…" : `Bewerten (${staged.length} Karte${staged.length === 1 ? "" : "n"})`}
+      </button>
+      <p className="mt-2 text-xs text-slate-500">
+        Kaskade nutzt SoldComps; ohne API-Key werden Karten nur erfasst, nicht bewertet.
+      </p>
+    </section>
+  );
+}
+
 function CompsTable({ rv }) {
   if (!rv) {
     return (
@@ -248,6 +401,14 @@ export default function CandidateDetail() {
             </h2>
             <CompsTable rv={data.reference_value} />
           </section>
+
+          <EvaluateSection
+            candidateId={id}
+            cards={data.cards || []}
+            totalValue={data.cards_total_value_eur}
+            estimatedProfit={data.estimated_profit}
+            onEvaluated={load}
+          />
         </div>
 
         <div className="space-y-4">

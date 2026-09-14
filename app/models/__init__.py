@@ -2,6 +2,7 @@
 
 from app.models.api_cost import ApiCost
 from app.models.candidate import Candidate
+from app.models.candidate_card import CandidateCard
 from app.models.card import Card, Variant
 from app.models.decision import Decision
 from app.models.enrichment import Enrichment
@@ -24,6 +25,7 @@ from app.models.usage_event import UsageEvent
 __all__ = [
     "ApiCost",
     "Candidate",
+    "CandidateCard",
     "Card",
     "Variant",
     "Decision",

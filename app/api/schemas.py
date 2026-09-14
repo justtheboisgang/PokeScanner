@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.models.enums import (
     Channel,
@@ -138,6 +138,7 @@ class CandidateDetail(BaseModel):
     enrichment: EnrichmentOut | None
     cards: list[CandidateCardOut] = []
     cards_total_value_eur: Decimal | None = None
+    purchase: PurchaseOut | None = None
 
 
 class TcgdexCardOut(BaseModel):
@@ -168,12 +169,76 @@ class EvaluationResponse(BaseModel):
     note: str | None
 
 
+def _require_text(value: str) -> str:
+    """§25a UStG: Erwerbsdaten must actually be filled in, not whitespace."""
+    text = (value or "").strip()
+    if not text:
+        raise ValueError("Pflichtfeld (§25a UStG) darf nicht leer sein")
+    return text
+
+
+class PurchaseIn(BaseModel):
+    """Kauf erfassen. Die §25a-UStG-Felder sind Pflicht (§5/§7)."""
+
+    candidate_id: int | None = None
+    price: Decimal = Field(ge=0)
+    date: date
+    channel: Channel
+    seller_name: str = Field(max_length=255)
+    seller_address: str
+    shipping_cost: Decimal = Field(default=Decimal("0"), ge=0)
+    currency: str = "EUR"
+
+    @field_validator("seller_name", "seller_address")
+    @classmethod
+    def _not_blank(cls, v: str) -> str:
+        return _require_text(v)
+
+
+class PurchaseOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    candidate_id: int | None
+    price: Decimal
+    date: date
+    channel: Channel
+    seller_name: str
+    seller_address: str
+    shipping_cost: Decimal
+    currency: str
+
+
+class SaleIn(BaseModel):
+    """Verkauf erfassen. days_to_sell wird aus dem Kaufdatum berechnet."""
+
+    price: Decimal = Field(ge=0)
+    date: date
+    channel: Channel
+    fees: Decimal = Field(default=Decimal("0"), ge=0)
+    currency: str = "EUR"
+
+
+class SaleOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    purchase_id: int
+    price: Decimal
+    date: date
+    channel: Channel
+    fees: Decimal
+    days_to_sell: int | None
+    currency: str
+
+
 class InventoryItem(BaseModel):
     purchase_id: int
     title: str
     channel: Channel
     seller_name: str
     purchase_price: Decimal
+    shipping_cost: Decimal
     purchase_date: date
     days_in_stock: int
     # Exit-Regel-Ampel (§7): green <45, amber 45-89 (repricen), red >=90 (abstoßen).
@@ -196,6 +261,15 @@ class CostsSummary(BaseModel):
     cost_per_fund_eur: Decimal | None
 
 
+class CascadeLevelError(BaseModel):
+    """Prognosefehler je Kaskadenstufe — zeigt, welche Stufe wie gut trägt."""
+
+    cascade_level: int
+    closed_deals: int
+    avg_forecast_error_eur: float | None
+    avg_abs_forecast_error_eur: float | None
+
+
 class CalibrationSummary(BaseModel):
     total_candidates: int
     alerts_per_channel: dict[str, int]
@@ -207,6 +281,7 @@ class CalibrationSummary(BaseModel):
     closed_deals: int
     avg_forecast_error_eur: float | None
     avg_abs_forecast_error_eur: float | None
+    per_cascade_level: list[CascadeLevelError] = []
 
 
 class TermDiagnostic(BaseModel):

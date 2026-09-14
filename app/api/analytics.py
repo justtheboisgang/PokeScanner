@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session, joinedload
 from app.api.deps import get_db
 from app.api.schemas import (
     CalibrationSummary,
+    CascadeLevelError,
     CostsSummary,
     DiagnosticsReport,
     InventoryItem,
@@ -60,6 +61,7 @@ def inventory(db: Session = Depends(get_db)) -> list[InventoryItem]:
                 channel=p.channel,
                 seller_name=p.seller_name,
                 purchase_price=p.price,
+                shipping_cost=p.shipping_cost,
                 purchase_date=p.date,
                 days_in_stock=days,
                 exit_status=status,
@@ -97,23 +99,41 @@ def calibration(db: Session = Depends(get_db)) -> CalibrationSummary:
 
     decided = sum(decisions.values())
 
-    # Forecast error from closed deals.
+    # Forecast error from closed deals, overall and per cascade level.
     sales = db.scalars(
         select(Sale).options(
-            joinedload(Sale.purchase).joinedload(Purchase.candidate)
+            joinedload(Sale.purchase)
+            .joinedload(Purchase.candidate)
+            .joinedload(Candidate.reference_value)
         )
     ).unique().all()
     errors: list[Decimal] = []
+    per_level: dict[int, list[Decimal]] = {}
     for s in sales:
         p = s.purchase
         cand = p.candidate if p is not None else None
         if cand is None or cand.estimated_profit is None:
             continue
         actual = Decimal(s.price) - Decimal(p.price) - Decimal(p.shipping_cost) - Decimal(s.fees)
-        errors.append(actual - Decimal(cand.estimated_profit))
+        error = actual - Decimal(cand.estimated_profit)
+        errors.append(error)
+        # Which cascade level produced that forecast? That is the thing to judge.
+        rv = cand.reference_value
+        if rv is not None:
+            per_level.setdefault(rv.cascade_level, []).append(error)
 
     def _avg(nums) -> float | None:
         return float(sum(nums) / len(nums)) if nums else None
+
+    level_rows = [
+        CascadeLevelError(
+            cascade_level=level,
+            closed_deals=len(errs),
+            avg_forecast_error_eur=_avg(errs),
+            avg_abs_forecast_error_eur=_avg([abs(e) for e in errs]),
+        )
+        for level, errs in sorted(per_level.items())
+    ]
 
     return CalibrationSummary(
         total_candidates=total,
@@ -126,6 +146,7 @@ def calibration(db: Session = Depends(get_db)) -> CalibrationSummary:
         closed_deals=len(sales),
         avg_forecast_error_eur=_avg(errors),
         avg_abs_forecast_error_eur=_avg([abs(e) for e in errors]),
+        per_cascade_level=level_rows,
     )
 
 

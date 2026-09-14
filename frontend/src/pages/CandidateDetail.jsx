@@ -163,6 +163,154 @@ function EvaluateSection({ candidateId, cards, totalValue, estimatedProfit, onEv
   );
 }
 
+const CHANNELS = [
+  { value: "kleinanzeigen", label: "Kleinanzeigen" },
+  { value: "ebay", label: "eBay" },
+  { value: "ebay_browse", label: "eBay (Browse)" },
+  { value: "willhaben", label: "willhaben" },
+];
+
+function todayISO() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function PurchaseSection({ candidateId, listing, purchase, onSaved }) {
+  const [price, setPrice] = useState(listing.price ?? "");
+  const [date, setDate] = useState(todayISO());
+  const [channel, setChannel] = useState(listing.channel || "kleinanzeigen");
+  const [sellerName, setSellerName] = useState("");
+  const [sellerAddress, setSellerAddress] = useState("");
+  const [shipping, setShipping] = useState("0");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
+
+  if (purchase) {
+    return (
+      <section className="rounded-lg border border-emerald-800/60 bg-emerald-950/20 p-4">
+        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-emerald-300">
+          Gekauft
+        </h2>
+        <dl className="space-y-1 text-sm">
+          <div className="flex justify-between">
+            <dt className="text-slate-400">Kaufpreis</dt>
+            <dd>{formatEuro(purchase.price, purchase.currency)}</dd>
+          </div>
+          <div className="flex justify-between">
+            <dt className="text-slate-400">Versand</dt>
+            <dd>{formatEuro(purchase.shipping_cost, purchase.currency)}</dd>
+          </div>
+          <div className="flex justify-between">
+            <dt className="text-slate-400">Datum</dt>
+            <dd>{purchase.date}</dd>
+          </div>
+          <div className="flex justify-between">
+            <dt className="text-slate-400">Verkäufer</dt>
+            <dd className="text-right">{purchase.seller_name}</dd>
+          </div>
+          <div className="pt-1 text-xs text-slate-500 whitespace-pre-wrap">
+            {purchase.seller_address}
+          </div>
+        </dl>
+        <p className="mt-3 text-xs text-slate-500">
+          Verkauf wird im Inventar erfasst.
+        </p>
+      </section>
+    );
+  }
+
+  // §25a UStG: ohne vollständige Erwerbsdaten keine Differenzbesteuerung.
+  const canSubmit =
+    price !== "" && date && sellerName.trim() && sellerAddress.trim();
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (!canSubmit) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await api.createPurchase({
+        candidate_id: Number(candidateId),
+        price: String(price),
+        date,
+        channel,
+        seller_name: sellerName.trim(),
+        seller_address: sellerAddress.trim(),
+        shipping_cost: String(shipping || "0"),
+      });
+      onSaved();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const field = "w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm";
+
+  return (
+    <section className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+      <h2 className="mb-1 text-sm font-semibold uppercase tracking-wide text-slate-400">
+        Kauf erfassen
+      </h2>
+      <p className="mb-3 text-xs text-slate-500">
+        Erwerbsdaten sind Pflicht (§25a UStG, Differenzbesteuerung).
+      </p>
+      <form onSubmit={submit} className="space-y-3">
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label className="mb-1 block text-xs text-slate-400">Kaufpreis €</label>
+            <input type="number" step="0.01" min="0" value={price}
+              onChange={(e) => setPrice(e.target.value)} className={field} />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs text-slate-400">Versand €</label>
+            <input type="number" step="0.01" min="0" value={shipping}
+              onChange={(e) => setShipping(e.target.value)} className={field} />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs text-slate-400">Kaufdatum</label>
+            <input type="date" value={date}
+              onChange={(e) => setDate(e.target.value)} className={field} />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs text-slate-400">Kanal</label>
+            <select value={channel} onChange={(e) => setChannel(e.target.value)} className={field}>
+              {CHANNELS.map((c) => (
+                <option key={c.value} value={c.value}>{c.label}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+        <div>
+          <label className="mb-1 block text-xs text-slate-400">
+            Verkäufer-Name <span className="text-rose-400">*</span>
+          </label>
+          <input value={sellerName} onChange={(e) => setSellerName(e.target.value)}
+            placeholder="Vor- und Nachname" className={field} />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs text-slate-400">
+            Verkäufer-Anschrift <span className="text-rose-400">*</span>
+          </label>
+          <textarea value={sellerAddress} rows={2}
+            onChange={(e) => setSellerAddress(e.target.value)}
+            placeholder="Straße, PLZ, Ort" className={field} />
+        </div>
+        {error && <p className="text-sm text-rose-400">{error}</p>}
+        <button type="submit" disabled={!canSubmit || saving}
+          className="w-full rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-40">
+          {saving ? "speichert…" : "Kauf speichern"}
+        </button>
+        {!canSubmit && (
+          <p className="text-xs text-slate-500">
+            Preis, Datum, Verkäufer-Name und -Anschrift sind Pflicht.
+          </p>
+        )}
+      </form>
+    </section>
+  );
+}
+
 function CompsTable({ rv }) {
   if (!rv) {
     return (
@@ -422,6 +570,13 @@ export default function CandidateDetail() {
               onSaved={() => load()}
             />
           </section>
+
+          <PurchaseSection
+            candidateId={id}
+            listing={l}
+            purchase={data.purchase}
+            onSaved={load}
+          />
 
           {data.enrichment && (
             <section className="rounded-lg border border-slate-800 bg-slate-900 p-4">

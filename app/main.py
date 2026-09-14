@@ -10,7 +10,7 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import analytics, candidates, cards, journal
+from app.api import analytics, candidates, cards, journal, trades
 from app.config import get_settings
 
 
@@ -33,6 +33,7 @@ def create_app() -> FastAPI:
     app.include_router(cards.router)
     app.include_router(journal.router)
     app.include_router(analytics.router)
+    app.include_router(trades.router)
     return app
 
 

@@ -24,6 +24,7 @@ from app.models.candidate import Candidate
 from app.models.candidate_card import CandidateCard
 from app.models.card import Variant
 from app.models.decision import Decision
+from app.models.purchase import Purchase
 from app.models.reference_value import ReferenceValue
 from app.pricing.evaluate import CardEntry, evaluate_candidate
 
@@ -114,7 +115,7 @@ def _card_out(cc: CandidateCard) -> CandidateCardOut:
     )
 
 
-def _detail(candidate: Candidate) -> CandidateDetail:
+def _detail(candidate: Candidate, purchase: Purchase | None = None) -> CandidateDetail:
     cards = [_card_out(cc) for cc in candidate.cards]
     total = Decimal("0")
     have = False
@@ -134,6 +135,7 @@ def _detail(candidate: Candidate) -> CandidateDetail:
         enrichment=candidate.enrichment,
         cards=cards,
         cards_total_value_eur=(total if have else None),
+        purchase=purchase,
     )
 
 
@@ -141,7 +143,9 @@ def _detail(candidate: Candidate) -> CandidateDetail:
 def get_candidate(
     candidate_id: int, db: Session = Depends(get_db)
 ) -> CandidateDetail:
-    return _detail(_load_detail(db, candidate_id))
+    candidate = _load_detail(db, candidate_id)
+    purchase = db.scalar(select(Purchase).where(Purchase.candidate_id == candidate_id))
+    return _detail(candidate, purchase)
 
 
 @router.post("/{candidate_id}/evaluate", response_model=EvaluationResponse)

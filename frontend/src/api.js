@@ -28,6 +28,13 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(body),
     }),
+  createPurchase: (body) =>
+    request(`/purchases`, { method: "POST", body: JSON.stringify(body) }),
+  createSale: (purchaseId, body) =>
+    request(`/purchases/${purchaseId}/sale`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
   listJournal: () => request(`/journal`),
   listInventory: () => request(`/inventory`),
   getCalibration: () => request(`/calibration`),

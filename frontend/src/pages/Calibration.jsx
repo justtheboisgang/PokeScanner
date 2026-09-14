@@ -51,6 +51,59 @@ export default function Calibration() {
         />
       </div>
 
+      <section className="mt-4 rounded-lg border border-slate-800 bg-slate-900 p-4">
+        <h2 className="mb-1 text-sm font-semibold uppercase tracking-wide text-slate-400">
+          Prognosefehler je Kaskadenstufe
+        </h2>
+        <p className="mb-3 text-xs text-slate-500">
+          Zeigt, welche Stufe trägt. Negativ = Prognose war zu optimistisch.
+        </p>
+        {(d.per_cascade_level || []).length === 0 ? (
+          <p className="text-sm text-slate-500">
+            Noch keine abgeschlossenen Deals mit Referenzwert.
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead className="bg-slate-800/60 text-xs uppercase text-slate-400">
+                <tr>
+                  <th className="px-3 py-2">Stufe</th>
+                  <th className="px-3 py-2">Deals</th>
+                  <th className="px-3 py-2">Ø Fehler</th>
+                  <th className="px-3 py-2">Ø |Fehler|</th>
+                </tr>
+              </thead>
+              <tbody>
+                {d.per_cascade_level.map((r) => (
+                  <tr key={r.cascade_level} className="border-t border-slate-800">
+                    <td className="px-3 py-2 font-medium">Stufe {r.cascade_level}</td>
+                    <td className="px-3 py-2 text-slate-300">{r.closed_deals}</td>
+                    <td
+                      className={`px-3 py-2 font-medium ${
+                        r.avg_forecast_error_eur == null
+                          ? "text-slate-500"
+                          : r.avg_forecast_error_eur >= 0
+                            ? "text-emerald-300"
+                            : "text-rose-300"
+                      }`}
+                    >
+                      {r.avg_forecast_error_eur == null
+                        ? "—"
+                        : `${num(r.avg_forecast_error_eur, 2)} €`}
+                    </td>
+                    <td className="px-3 py-2 text-slate-300">
+                      {r.avg_abs_forecast_error_eur == null
+                        ? "—"
+                        : `${num(r.avg_abs_forecast_error_eur, 2)} €`}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
       <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2">
         <section className="rounded-lg border border-slate-800 bg-slate-900 p-4">
           <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-400">

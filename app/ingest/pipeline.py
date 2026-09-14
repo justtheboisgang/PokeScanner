@@ -24,6 +24,7 @@ from app.db import session_scope
 from app.clients.tcgdex import TCGdexClient
 from app.enrich.service import EnrichmentService
 from app.enrich.vision import VisionAnalyzer
+from app.health import HEARTBEAT_SOURCE
 from app.ingest.alarm import evaluate
 from app.ingest.dedup import ImageHasher, find_duplicate_listing
 from app.ingest.normalized import NormalizedListing
@@ -143,16 +144,19 @@ class IngestionPipeline:
         return stats
 
     def _record_usage(self, stats: PollStats) -> None:
-        """Persist real call counts per source for the Kosten view (§9)."""
+        """Persist real call counts per source for the Kosten view (§9).
+
+        Always writes a heartbeat too, even on an empty poll: the health check
+        (Block 4) needs to distinguish "ran and found nothing" from "stopped".
+        """
         rows = dict(stats.per_source_queries)
         if stats.vision_calls:
             rows["vision"] = stats.vision_calls
-        if not rows:
-            return
         try:
             with self.session_factory() as session:
                 for source, calls in rows.items():
                     session.add(UsageEvent(source=source, calls=calls))
+                session.add(UsageEvent(source=HEARTBEAT_SOURCE, calls=1))
         except Exception:
             logger.exception("failed to record usage")
 

@@ -160,6 +160,18 @@ class Settings(BaseSettings):
     poll_day_start_hour: int = Field(default=8, alias="POLL_DAY_START_HOUR")
     poll_day_end_hour: int = Field(default=23, alias="POLL_DAY_END_HOUR")
 
+    # --- Health check (Block 4) ---
+    # Ein stillgefallener Worker muss auffallen: bleibt ein erfolgreicher Scan
+    # länger aus als das Fenster, warnt der Monitor auf Discord.
+    health_check_enabled: bool = Field(default=True, alias="HEALTH_CHECK_ENABLED")
+    health_max_silence_hours: int = Field(
+        default=3, alias="HEALTH_MAX_SILENCE_HOURS"
+    )
+    # Cooldown, damit ein dauerhaft toter Worker nicht dauernd warnt.
+    health_warn_cooldown_hours: int = Field(
+        default=3, alias="HEALTH_WARN_COOLDOWN_HOURS"
+    )
+
     # --- Enrichment (Phase 4, §11) — runs AFTER/parallel to the alarm, never in
     #     the critical path (§10). Vision hints only, never a verdict/price. ---
     anthropic_api_key: str = Field(default="", alias="ANTHROPIC_API_KEY")
@@ -185,6 +197,10 @@ class Settings(BaseSettings):
     )
 
     # --- Web API ---
+    # Passwortschutz für die Website (Block 4). Leer = aus (nur lokal sinnvoll).
+    # Gesetzt => HTTP-Basic-Auth auf allen /api-Routen außer /api/health.
+    web_username: str = Field(default="poke", alias="WEB_USERNAME")
+    web_password: str = Field(default="", alias="WEB_PASSWORD")
     # Comma-separated allowed origins for CORS. "*" is dev-only; set your real
     # frontend origin(s) in production.
     cors_allow_origins: str = Field(default="*", alias="CORS_ALLOW_ORIGINS")

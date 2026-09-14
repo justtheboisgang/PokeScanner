@@ -15,7 +15,9 @@ from zoneinfo import ZoneInfo
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
 
+from app.alerts.discord import DiscordNotifier
 from app.config import Settings, get_settings
+from app.health import HealthMonitor
 from app.ingest.pipeline import build_pipeline
 
 logger = logging.getLogger(__name__)
@@ -63,13 +65,27 @@ def run() -> None:
     scheduler.add_job(pipeline.poll, day_trigger, id="poll_day", max_instances=1)
     scheduler.add_job(pipeline.poll, night_trigger, id="poll_night", max_instances=1)
 
+    # Health check (Block 4): stündlich prüfen, ob überhaupt noch gescannt wird.
+    if settings.health_check_enabled:
+        monitor = HealthMonitor(DiscordNotifier(), settings=settings)
+        scheduler.add_job(
+            monitor.check,
+            CronTrigger(minute=17, timezone=tz),
+            id="health_check",
+            max_instances=1,
+        )
+
     logger.info(
-        "scheduler starting (tz=%s, day %02d:00-%02d:00 every %dm, night every %dm)",
+        "scheduler starting (tz=%s, day %02d:00-%02d:00 every %dm, night every %dm, "
+        "health check %s)",
         settings.scheduler_timezone,
         settings.poll_day_start_hour,
         settings.poll_day_end_hour,
         settings.poll_day_interval_minutes,
         settings.poll_night_interval_minutes,
+        f"after {settings.health_max_silence_hours}h silence"
+        if settings.health_check_enabled
+        else "off",
     )
     try:
         scheduler.start()

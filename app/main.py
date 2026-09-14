@@ -11,16 +11,28 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import analytics, candidates, cards, journal, trades
+from app.api.auth import BasicAuthMiddleware
 from app.config import get_settings
 
 
 def create_app() -> FastAPI:
     app = FastAPI(title="PokeScanner", version="0.4.0")
 
+    settings = get_settings()
+
+    # Passwortschutz (Block 4): nur aktiv, wenn WEB_PASSWORD gesetzt ist.
+    # Muss VOR CORS registriert werden, damit CORS-Header auch auf 401 sitzen.
+    if settings.web_password:
+        app.add_middleware(
+            BasicAuthMiddleware,
+            username=settings.web_username,
+            password=settings.web_password,
+        )
+
     # CORS origins from config ("*" for dev; set CORS_ALLOW_ORIGINS in prod).
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=get_settings().cors_origins_list,
+        allow_origins=settings.cors_origins_list,
         allow_methods=["*"],
         allow_headers=["*"],
     )

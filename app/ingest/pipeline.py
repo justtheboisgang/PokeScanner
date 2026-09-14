@@ -21,6 +21,7 @@ from app.config import Settings, get_settings
 from app.config_data import SearchTerms, load_search_terms
 from app.costs import PROVIDER_APIFY, CostGuard
 from app.db import session_scope
+from app.clients.tcgdex import TCGdexClient
 from app.enrich.service import EnrichmentService
 from app.enrich.vision import VisionAnalyzer
 from app.ingest.alarm import evaluate
@@ -92,10 +93,33 @@ class IngestionPipeline:
             session_factory=session_factory, settings=self.settings
         )
         self.enrichment = enrichment or EnrichmentService(
-            VisionAnalyzer(), notifier, session_factory=session_factory
+            VisionAnalyzer(),
+            notifier,
+            session_factory=session_factory,
+            auto_valuer=self._build_auto_valuer(),
         )
         self._hasher = hasher
         self._vision_calls_left = 0
+
+    def _build_auto_valuer(self):
+        """Auto valuation callback for enrichment (Block 2.2), or None if off."""
+        if not self.settings.enrich_auto_value_enabled:
+            return None
+        # Import here to keep the pricing layer out of the module import cycle.
+        from app.models.candidate import Candidate as _Candidate
+        from app.models.enums import Language
+        from app.pricing.evaluate import auto_value_candidate
+        from app.pricing.resolver import SingleCardTitleResolver
+
+        lang = Language.DE if self.settings.tcgdex_primary_lang == "de" else Language.EN
+        resolver = SingleCardTitleResolver(TCGdexClient(), lang=lang)
+
+        def _valuer(session: Session, candidate: "_Candidate") -> object:
+            return auto_value_candidate(
+                session, candidate, resolver=resolver, settings=self.settings
+            )
+
+        return _valuer
 
     @property
     def hasher(self) -> ImageHasher | None:

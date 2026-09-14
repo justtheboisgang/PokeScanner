@@ -67,10 +67,14 @@ class EnrichmentService:
         notifier: DiscordNotifier,
         *,
         session_factory: Callable[[], AbstractContextManager[Session]] = session_scope,
+        auto_valuer: Callable[[Session, Candidate], object] | None = None,
     ) -> None:
         self.vision = vision
         self.notifier = notifier
         self.session_factory = session_factory
+        # Block 2.2: attempt an automatic single-card valuation before drawing the
+        # embed. Optional; when absent, candidates simply stay unbewertbar.
+        self.auto_valuer = auto_valuer
 
     def enrich(self, candidate_id: int, *, allow_vision: bool) -> EnrichmentOutcome:
         content: AlertContent | None = None
@@ -94,6 +98,19 @@ class EnrichmentService:
 
             listing = candidate.listing
             flags = extract_condition_flags(listing.title, listing.description)
+
+            # Automatic valuation (Block 2.2): only unambiguous single-card titles
+            # get a value; everything else stays unbewertbar. Runs before the embed
+            # is drawn so a resolved value shows up in the first edit.
+            if self.auto_valuer is not None:
+                try:
+                    self.auto_valuer(session, candidate)
+                    session.flush()
+                    session.expire(candidate)
+                except Exception:
+                    logger.exception(
+                        "auto valuation failed for candidate %s", candidate_id
+                    )
 
             vision_summary: str | None = None
             vision_model: str | None = None

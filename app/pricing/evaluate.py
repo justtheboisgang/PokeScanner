@@ -14,7 +14,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from decimal import Decimal
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.clients.soldcomps import SoldCompsClient
@@ -26,6 +26,7 @@ from app.models.candidate_card import CandidateCard
 from app.models.card import Card, Variant
 from app.models.enums import Condition, Language, Printing
 from app.pricing.cascade import CascadeConfig
+from app.pricing.resolver import NullResolver, TitleResolver
 from app.pricing.service import ReferenceValueCascade, persist_reference_value
 
 logger = logging.getLogger(__name__)
@@ -184,4 +185,80 @@ def evaluate_candidate(
         estimated_profit_eur=estimated_profit,
         soldcomps_active=soldcomps_active,
         note=note,
+    )
+
+
+def auto_value_candidate(
+    session: Session,
+    candidate: Candidate,
+    *,
+    resolver: TitleResolver | None = None,
+    settings: Settings | None = None,
+    soldcomps: SoldCompsClient | None = None,
+    tcgdex: TCGdexClient | None = None,
+) -> EvaluationResult:
+    """Two-gate automatic valuation (Block 2.2).
+
+    Gate 1: the title must unambiguously name exactly one card (the resolver's
+    job). Konvolute and vague titles resolve to None and stay unbewertbar — the
+    normal case. Gate 2: only spend SoldComps quota when a key is set and the
+    daily budget still allows it. Never overrides a manual identification or an
+    existing value.
+    """
+    settings = settings or get_settings()
+    resolver = resolver or NullResolver()
+
+    inactive = EvaluationResult(None, None, False, None)
+
+    # Respect manual work / an already-computed value.
+    if candidate.reference_value_id is not None:
+        return inactive
+    already_identified = session.scalar(
+        select(func.count())
+        .select_from(CandidateCard)
+        .where(CandidateCard.candidate_id == candidate.id)
+    )
+    if already_identified:
+        return inactive
+    listing = candidate.listing
+    if listing is None:
+        return inactive
+
+    # Gate 1: unambiguous single card, or nothing.
+    resolved = resolver.resolve(listing.title, listing.description)
+    if resolved is None:
+        return inactive
+
+    # Gate 2: only run (and store) when SoldComps can actually value it today.
+    @contextmanager
+    def _bind():
+        yield session
+
+    guard = CostGuard(session_factory=_bind, settings=settings)
+    if not settings.soldcomps_api_key or guard.is_disabled(PROVIDER_SOLDCOMPS):
+        return EvaluationResult(
+            None,
+            None,
+            False,
+            "Titel eindeutig, aber SoldComps nicht verfügbar (kein Key/Budget).",
+        )
+
+    entry = CardEntry(
+        tcgdex_id=resolved.tcgdex_id,
+        name=resolved.name,
+        set=None,
+        number=resolved.number,
+        language=resolved.language,
+        # A title never states the condition reliably; stay conservative.
+        condition=Condition.UNKNOWN,
+        printing=resolved.printing,
+        quantity=1,
+    )
+    return evaluate_candidate(
+        session,
+        candidate,
+        [entry],
+        settings=settings,
+        soldcomps=soldcomps,
+        tcgdex=tcgdex,
     )

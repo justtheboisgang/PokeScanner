@@ -177,6 +177,12 @@ class Settings(BaseSettings):
     enrich_vision_max_images: int = Field(
         default=4, alias="ENRICH_VISION_MAX_IMAGES"
     )
+    # Automatic single-card valuation (Block 2.2). Only unambiguous single-card
+    # titles ("… 4/102 …") are auto-valued; Konvolute stay unbewertbar. Spend is
+    # bounded by the SoldComps daily budget (cost guard). Kill switch here.
+    enrich_auto_value_enabled: bool = Field(
+        default=True, alias="ENRICH_AUTO_VALUE_ENABLED"
+    )
 
     # --- Web API ---
     # Comma-separated allowed origins for CORS. "*" is dev-only; set your real

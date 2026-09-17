@@ -151,3 +151,34 @@ def test_pipeline_cross_channel_dedup(scoped_factory, db):
     assert stats.deduped == 1
     assert db.query(Candidate).count() == 1
     assert db.query(Listing).count() == 2  # both listings stored
+
+
+# --- Block 5: kanalabhängige Preis-Pflicht ---------------------------------
+
+
+def _poll_one(scoped_factory, channel, name, price):
+    src = FakeSource(
+        channel,
+        name,
+        {"alte pokemon karten": [_listing(channel, f"{name}-{price}", price=price)]},
+    )
+    return _pipeline([src], FakeNotifier(), scoped_factory, hasher=FakeHasher()).poll()
+
+
+def test_kleinanzeigen_without_price_still_fires(scoped_factory, db):
+    """VB/leer ist bei Konvoluten der Normalfall und genau der Werthebel (R4)."""
+    stats = _poll_one(scoped_factory, Channel.KLEINANZEIGEN, "kleinanzeigen", None)
+    assert stats.alerts_sent == 1
+    assert stats.skipped_excluded == 0
+
+
+def test_ebay_without_price_does_not_fire(scoped_factory, db):
+    """Auf eBay ist ein Treffer ohne Preis kein Deal-Signal, sondern Rauschen."""
+    stats = _poll_one(scoped_factory, Channel.EBAY_BROWSE, "ebay_browse", None)
+    assert stats.alerts_sent == 0
+    assert stats.skipped_excluded == 1
+
+
+def test_ebay_with_price_fires(scoped_factory, db):
+    stats = _poll_one(scoped_factory, Channel.EBAY_BROWSE, "ebay_browse", "40")
+    assert stats.alerts_sent == 1

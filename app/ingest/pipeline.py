@@ -55,6 +55,15 @@ _CHANNEL_PROVIDER = {
     Channel.EBAY_BROWSE: None,
 }
 
+# Channels where a listing WITHOUT a price must not fire (Block 5).
+# Kleinanzeigen/willhaben: "VB" or an empty price is the normal case for a
+# Konvolut and is exactly the value edge -> it fires (R4). On eBay a hit without
+# a price is not a deal signal, just noise, so it stays quiet.
+_CHANNEL_REQUIRE_PRICE = {
+    Channel.EBAY: True,
+    Channel.EBAY_BROWSE: True,
+}
+
 
 @dataclass
 class PollStats:
@@ -232,11 +241,15 @@ class IngestionPipeline:
                 return
 
         stats.new_listings += 1
+        # The global switch can only tighten the per-channel rule, never loosen it.
+        require_price = self.settings.alert_require_price or _CHANNEL_REQUIRE_PRICE.get(
+            normalized.channel, False
+        )
         decision = evaluate(
             normalized,
             search_terms=self.search_terms,
             price_ceiling=self.settings.alert_price_ceiling_eur,
-            require_price=self.settings.alert_require_price,
+            require_price=require_price,
         )
         if not decision.should_alert:
             stats.skipped_excluded += 1

@@ -11,6 +11,7 @@ which the §5 data model does not yet include.
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 
 from app.clients.soldcomps import SoldCompsClient
@@ -29,6 +30,8 @@ from app.pricing.cascade import (
 
 # Localized language facet names (§4.2: Facettennamen sind pro Site lokalisiert).
 # Defaults for ebay.de; override per call as needed.
+logger = logging.getLogger(__name__)
+
 DEFAULT_DE_ASPECT = {"Sprache": "Deutsch"}
 DEFAULT_EN_ASPECT = {"Sprache": "Englisch"}
 
@@ -71,30 +74,43 @@ class ReferenceValueCascade:
         """Run the full cascade for one variant."""
         query = query or build_query(card)
 
+        def sold(aspect: dict | None, language: Language) -> list:
+            """Fetch one sold-comp bucket. An outage must not kill the cascade.
+
+            The whole point of the cascade is that a missing step falls through
+            to the next one. Letting a SoldComps error escape skipped Stufe 4
+            (Cardmarket) entirely and left the card unbewertbar, even though an
+            honest — if weak — value was available.
+            """
+            try:
+                raw = self.soldcomps.scrape_sold(
+                    query, seller_type=seller_type, aspect_filter=aspect
+                )
+            except Exception:
+                logger.warning(
+                    "sold comps unavailable for %r (%s) — falling through to the "
+                    "next cascade step",
+                    query,
+                    language.value,
+                    exc_info=True,
+                )
+                return []
+            return within_window(
+                sold_items_to_comps(raw, language=language),
+                self.config.window_days,
+                now=now,
+            )
+
         # Same-language bucket (the variant's own language).
         same_aspect = (
             de_aspect_filter if variant.language == Language.DE else en_aspect_filter
         )
-        same_raw = self.soldcomps.scrape_sold(
-            query, seller_type=seller_type, aspect_filter=same_aspect
-        )
-        comps_same = within_window(
-            sold_items_to_comps(same_raw, language=variant.language),
-            self.config.window_days,
-            now=now,
-        )
+        comps_same = sold(same_aspect, variant.language)
 
         # English bucket only matters for a German variant (Stufe 3).
         comps_english: list = []
         if variant.language == Language.DE:
-            en_raw = self.soldcomps.scrape_sold(
-                query, seller_type=seller_type, aspect_filter=en_aspect_filter
-            )
-            comps_english = within_window(
-                sold_items_to_comps(en_raw, language=Language.EN),
-                self.config.window_days,
-                now=now,
-            )
+            comps_english = sold(en_aspect_filter, Language.EN)
 
         return select_reference_value(
             variant_language=variant.language,

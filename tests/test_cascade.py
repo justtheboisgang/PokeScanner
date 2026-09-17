@@ -167,3 +167,59 @@ def test_sold_item_to_comp_parses_core_fields():
 def test_sold_item_without_price_is_dropped():
     assert sold_item_to_comp({"soldPrice": None}, language=Language.DE) is None
     assert sold_item_to_comp({"soldPrice": 0}, language=Language.DE) is None
+
+
+# --- Ausfall einer Stufe darf die Kaskade nicht toeten ---------------------
+
+
+def test_soldcomps_outage_falls_through_to_cardmarket():
+    """Faellt SoldComps aus, muss Stufe 4 uebernehmen statt unbewertbar zu sein."""
+    from app.clients.tcgdex import CardmarketPricing
+    from app.models.card import Card, Variant
+    from app.pricing.service import ReferenceValueCascade
+
+    class _BrokenSoldComps:
+        request_count = 0
+
+        def scrape_sold(self, *a, **kw):
+            raise RuntimeError("SoldComps error 400: bad request")
+
+    class _Tcgdex:
+        def get_cardmarket_pricing(self, card_id):
+            return CardmarketPricing(trend=Decimal("42.50"))
+
+    card = Card(name="Glurak", number="4/102", tcgdex_id="base1-4")
+    variant = Variant(
+        card_id=1, language=Language.DE, condition=Condition.PLAYED,
+        printing=Printing.NORMAL,
+    )
+    result = ReferenceValueCascade(_BrokenSoldComps(), _Tcgdex(), CONFIG).compute(
+        card, variant
+    )
+    assert result.cascade_level == 4
+    assert result.value == Decimal("42.50")
+    assert result.is_weak is True          # ehrlich als schwach markiert
+    assert result.source == ReferenceSource.TCGDEX_CARDMARKET
+
+
+def test_soldcomps_outage_without_cardmarket_is_unbewertbar():
+    """Ohne jede Quelle bleibt es unbewertbar — nie geraten."""
+    from app.models.card import Card, Variant
+    from app.pricing.service import ReferenceValueCascade
+
+    class _BrokenSoldComps:
+        def scrape_sold(self, *a, **kw):
+            raise RuntimeError("boom")
+
+    class _NoPricing:
+        def get_cardmarket_pricing(self, card_id):
+            return None
+
+    card = Card(name="Glurak", number="4/102", tcgdex_id="base1-4")
+    variant = Variant(card_id=1, language=Language.DE, condition=Condition.PLAYED,
+                      printing=Printing.NORMAL)
+    result = ReferenceValueCascade(_BrokenSoldComps(), _NoPricing(), CONFIG).compute(
+        card, variant
+    )
+    assert result.cascade_level == 5
+    assert result.is_valuable is False

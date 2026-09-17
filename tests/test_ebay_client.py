@@ -71,3 +71,34 @@ def test_429_rate_limit():
 
     with pytest.raises(RateLimitError):
         _client(handler).search_active("x")
+
+
+def test_search_sorts_by_newest_listings():
+    """Ohne sort liefert eBay nach Relevanz — neue Angebote blieben unsichtbar.
+
+    Fuer einen Schnaeppchenjaeger zaehlt Aktualitaet: was gerade erst online
+    ging, ist noch nicht weggekauft (R1).
+    """
+    seen: dict[str, str] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if "oauth" in str(request.url):
+            return httpx.Response(200, json={"access_token": "t", "expires_in": 7200})
+        seen.update(dict(request.url.params))
+        return httpx.Response(200, json={"itemSummaries": []})
+
+    _client(handler).search_active("glurak holo")
+    assert seen.get("sort") == "newlyListed"
+
+
+def test_sort_can_be_switched_off():
+    seen: dict[str, str] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if "oauth" in str(request.url):
+            return httpx.Response(200, json={"access_token": "t", "expires_in": 7200})
+        seen.update(dict(request.url.params))
+        return httpx.Response(200, json={"itemSummaries": []})
+
+    _client(handler).search_active("glurak holo", sort="")
+    assert "sort" not in seen

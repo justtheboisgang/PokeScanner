@@ -39,6 +39,7 @@ class EbayBrowseClient:
         self.base_url = (base_url or settings.ebay_browse_base_url).rstrip("/")
         self.oauth_url = oauth_url or settings.ebay_oauth_url
         self.marketplace = marketplace or settings.ebay_marketplace
+        self.sort = settings.ebay_browse_sort
         self._client = httpx.Client(transport=transport, timeout=timeout)
         self._monotonic = monotonic
         self._token: str | None = None
@@ -74,12 +75,24 @@ class EbayBrowseClient:
         self._token_expiry = self._monotonic() + float(body.get("expires_in", 7200)) - 60
         return self._token
 
-    def search_active(self, query: str, *, limit: int = 50) -> list[dict]:
-        """Search active listings; returns the itemSummaries list."""
+    def search_active(
+        self, query: str, *, limit: int = 50, sort: str | None = None
+    ) -> list[dict]:
+        """Search active listings; returns the itemSummaries list.
+
+        `sort` matters more than it looks: without it eBay ranks by relevance,
+        so a brand-new listing that scores poorly never reaches the first page
+        and the scanner never sees it. "newlyListed" puts the freshest first,
+        which is what a deal hunter needs (R1).
+        """
         token = self._get_token()
+        params: dict[str, object] = {"q": query, "limit": limit}
+        chosen = self.sort if sort is None else sort
+        if chosen:
+            params["sort"] = chosen
         resp = self._client.get(
             f"{self.base_url}/buy/browse/v1/item_summary/search",
-            params={"q": query, "limit": limit},
+            params=params,
             headers={
                 "Authorization": f"Bearer {token}",
                 "X-EBAY-C-MARKETPLACE-ID": self.marketplace,

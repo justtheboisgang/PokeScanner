@@ -85,14 +85,14 @@ class Settings(BaseSettings):
         default=Decimal("80"), alias="BUY_THRESHOLD_PICKUP_EUR"
     )
     # Unterhalb dieses Angebotspreises wird keine Einzelkarte nachgeschlagen —
-    # aber nur auf Kanaelen, wo der Preis dem Markt folgt (eBay). Eine Bewertung
-    # kostet rund 0,04 EUR, das Tagesbudget traegt ~75 davon; bei wenigen neuen
-    # Treffern pro Scan ist das Budget nie der Engpass. Ein hoher Wert wirft
-    # daher vor allem Funde weg: 15 EUR blockierte vier von fuenf Kandidaten,
-    # allesamt knapp darunter. 5 EUR haelt Cent-Trainerkarten draussen und
-    # laesst echte Karten durch.
+    # aber nur auf Kanaelen, wo der Preis dem Markt folgt (eBay). Auf
+    # Kleinanzeigen greift sie nie, dort IST der niedrige Preis der Werthebel.
+    # Abwaegung: eine Bewertung kostet ~0,04 EUR und das Tagesbudget traegt ~75
+    # davon, das Budget ist also selten der Engpass — ein hoher Wert spart
+    # deshalb weniger Kosten, als er Funde kostet (bei 15 EUR fielen vier von
+    # fuenf Kandidaten aus, alle knapp darunter). Bewusst so gesetzt.
     single_card_lookup_threshold_eur: Decimal = Field(
-        default=Decimal("5"), alias="SINGLE_CARD_LOOKUP_THRESHOLD_EUR"
+        default=Decimal("15"), alias="SINGLE_CARD_LOOKUP_THRESHOLD_EUR"
     )
 
     # --- Apify (Kleinanzeigen, §4.4) ---
@@ -128,6 +128,11 @@ class Settings(BaseSettings):
         default="https://api.ebay.com", alias="EBAY_BROWSE_BASE_URL"
     )
     ebay_browse_limit: int = Field(default=50, alias="EBAY_BROWSE_LIMIT")
+    # Ohne sort liefert eBay nach RELEVANZ ("Best Match"). Ein brandneues
+    # Angebot, das relevanzmaessig hinten liegt, taucht dann in den obersten
+    # Treffern nie auf — der Scanner saehe es nie. Fuer einen Schnaeppchenjaeger
+    # zaehlt Aktualitaet (R1), also newlyListed. Leer = eBays Standard.
+    ebay_browse_sort: str = Field(default="newlyListed", alias="EBAY_BROWSE_SORT")
 
     # --- Cost guard (Block 0) — Stück-Kosten (Schätzung, empirisch anpassen) ---
     cost_apify_per_listing_eur: Decimal = Field(

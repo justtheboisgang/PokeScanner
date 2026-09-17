@@ -108,6 +108,8 @@ class EbayBrowseSource:
         self.limit = limit
 
     def fetch(self, query: str) -> list[NormalizedListing]:
+        # Sortierung steckt im Client (newlyListed): ohne sie liefert eBay nach
+        # Relevanz, und neue Angebote blieben unsichtbar.
         items = self.client.search_active(query, limit=self.limit)
         out: list[NormalizedListing] = []
         for item in items:

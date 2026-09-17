@@ -8,6 +8,9 @@ the same embed instead of sending a second message (R1).
 
 from __future__ import annotations
 
+import logging
+import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from decimal import Decimal
 
@@ -15,6 +18,8 @@ import httpx
 
 from app.alerts.messages import contact_message
 from app.config import get_settings
+
+logger = logging.getLogger(__name__)
 
 # Discord embed color (a calm blue). Cosmetic only.
 _EMBED_COLOR = 0x5865F2
@@ -101,11 +106,74 @@ class DiscordNotifier:
         *,
         transport: httpx.BaseTransport | None = None,
         timeout: float = 15.0,
+        min_interval: float | None = None,
+        max_retries: int = 3,
+        sleep: Callable[[float], None] = time.sleep,
+        monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
+        settings = get_settings()
         self.webhook_url = (
-            webhook_url if webhook_url is not None else get_settings().discord_webhook_url
+            webhook_url if webhook_url is not None else settings.discord_webhook_url
         )
         self._client = httpx.Client(transport=transport, timeout=timeout)
+        # Discord rate-limits webhooks hard. Space requests out so we rarely hit
+        # 429 at all, and honour Retry-After when we still do (§8).
+        self._min_interval = (
+            settings.discord_min_interval_seconds
+            if min_interval is None
+            else min_interval
+        )
+        self._max_retries = max_retries
+        self._sleep = sleep
+        self._monotonic = monotonic
+        self._last_request_at: float | None = None
+
+    def _throttle(self) -> None:
+        if self._min_interval <= 0 or self._last_request_at is None:
+            return
+        wait = self._min_interval - (self._monotonic() - self._last_request_at)
+        if wait > 0:
+            self._sleep(wait)
+
+    @staticmethod
+    def _retry_after(resp: httpx.Response) -> float:
+        """Seconds Discord asks us to wait. Body wins; it is the precise one."""
+        try:
+            body = resp.json()
+            if isinstance(body, dict) and body.get("retry_after") is not None:
+                return max(0.0, float(body["retry_after"]))
+        except (ValueError, TypeError):
+            pass
+        header = resp.headers.get("Retry-After")
+        if header is not None:
+            try:
+                return max(0.0, float(header))
+            except ValueError:
+                pass
+        return 1.0
+
+    def _request(self, method: str, url: str, **kwargs) -> httpx.Response:
+        """Send one request, waiting out 429s instead of dropping the alert."""
+        for attempt in range(self._max_retries + 1):
+            self._throttle()
+            try:
+                resp = self._client.request(method, url, **kwargs)
+            finally:
+                self._last_request_at = self._monotonic()
+            if resp.status_code != 429:
+                resp.raise_for_status()
+                return resp
+            if attempt == self._max_retries:
+                resp.raise_for_status()
+            wait = self._retry_after(resp)
+            logger.warning(
+                "Discord rate limited, waiting %.2fs (attempt %d/%d)",
+                wait,
+                attempt + 1,
+                self._max_retries,
+            )
+            self._sleep(wait)
+        raise RuntimeError("unreachable")
 
     def __enter__(self) -> "DiscordNotifier":
         return self
@@ -124,17 +192,18 @@ class DiscordNotifier:
         """Post a plain text message (operational warnings, not listing alerts)."""
         if not self.enabled:
             return
-        resp = self._client.post(
+        self._request(
+            "POST",
             self.webhook_url,
             json={"content": content[:2000], "allowed_mentions": {"parse": []}},
         )
-        resp.raise_for_status()
 
     def send(self, content: AlertContent) -> str | None:
         """Send an alert embed. Returns the Discord message id (for later edits)."""
         if not self.enabled:
             return None
-        resp = self._client.post(
+        resp = self._request(
+            "POST",
             self.webhook_url,
             params={"wait": "true"},
             # Suppress mention injection: listing titles are attacker-controlled,
@@ -144,7 +213,6 @@ class DiscordNotifier:
                 "allowed_mentions": {"parse": []},
             },
         )
-        resp.raise_for_status()
         body = resp.json()
         message_id = body.get("id") if isinstance(body, dict) else None
         return str(message_id) if message_id is not None else None
@@ -153,11 +221,11 @@ class DiscordNotifier:
         """Edit an existing alert embed in place (enrichment, R1). Phase 4."""
         if not self.enabled:
             return
-        resp = self._client.patch(
+        self._request(
+            "PATCH",
             f"{self.webhook_url}/messages/{message_id}",
             json={
                 "embeds": [build_embed(content)],
                 "allowed_mentions": {"parse": []},
             },
         )
-        resp.raise_for_status()

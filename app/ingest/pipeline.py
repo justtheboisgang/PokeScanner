@@ -329,7 +329,12 @@ class IngestionPipeline:
         try:
             message_id = self.notifier.send(content)
         except Exception:
+            # The candidate is stored and visible on the website; only Discord
+            # failed. Do NOT mark it as alerted — time-to-alert would be a lie.
             logger.exception("Discord send failed for candidate %s", candidate_id)
+            stats.errors += 1
+            stats.per_term_new[term] = stats.per_term_new.get(term, 0) + 1
+            return
 
         self._alerts_left -= 1
         with self.session_factory() as session:

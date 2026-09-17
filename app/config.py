@@ -153,6 +153,11 @@ class Settings(BaseSettings):
     # — nur die Zustellung wird gedeckelt, plus eine Sammelmeldung. Schützt vor
     # der Flut beim ersten Lauf (alles neu) und vor Discords Rate-Limit.
     alert_max_per_poll: int = Field(default=50, alias="ALERT_MAX_PER_POLL")
+    # Mindestabstand zwischen zwei Discord-Requests in Sekunden. Discord drosselt
+    # Webhooks hart (429); mit Abstand treten die Sperren gar nicht erst auf.
+    discord_min_interval_seconds: float = Field(
+        default=1.0, alias="DISCORD_MIN_INTERVAL_SECONDS"
+    )
 
     # --- Poll schedule (staggered, §11) ---
     scheduler_timezone: str = Field(default="Europe/Berlin", alias="SCHEDULER_TIMEZONE")

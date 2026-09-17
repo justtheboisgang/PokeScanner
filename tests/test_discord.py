@@ -5,6 +5,7 @@ from __future__ import annotations
 from decimal import Decimal
 
 import httpx
+import pytest
 
 from app.alerts.discord import AlertContent, DiscordNotifier, build_embed
 
@@ -89,3 +90,84 @@ def test_send_noop_when_disabled():
     notifier = DiscordNotifier("")
     assert notifier.enabled is False
     assert notifier.send(_content()) is None
+
+
+# --- Rate-Limit: 429 aussitzen statt Alarm verlieren -----------------------
+
+
+def test_429_is_waited_out_and_retried():
+    """Discord drosselt hart — ein Alarm darf daran nicht verloren gehen."""
+    calls = {"n": 0}
+    slept: list[float] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return httpx.Response(429, json={"retry_after": 1.25, "global": False})
+        return httpx.Response(200, json={"id": "msg-1"})
+
+    notifier = DiscordNotifier(
+        "https://discord.test/hook",
+        transport=httpx.MockTransport(handler),
+        min_interval=0,
+        sleep=slept.append,
+    )
+    assert notifier.send(_content()) == "msg-1"
+    assert calls["n"] == 2
+    assert slept == [1.25]  # exakt so lange wie Discord verlangt
+
+
+def test_429_falls_back_to_retry_after_header():
+    calls = {"n": 0}
+    slept: list[float] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return httpx.Response(429, headers={"Retry-After": "2"}, text="nope")
+        return httpx.Response(200, json={"id": "m"})
+
+    notifier = DiscordNotifier(
+        "https://discord.test/hook",
+        transport=httpx.MockTransport(handler),
+        min_interval=0,
+        sleep=slept.append,
+    )
+    notifier.send(_content())
+    assert slept == [2.0]
+
+
+def test_429_gives_up_after_max_retries():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(429, json={"retry_after": 0.1})
+
+    notifier = DiscordNotifier(
+        "https://discord.test/hook",
+        transport=httpx.MockTransport(handler),
+        min_interval=0,
+        max_retries=2,
+        sleep=lambda _s: None,
+    )
+    with pytest.raises(httpx.HTTPStatusError):
+        notifier.send(_content())
+
+
+def test_requests_are_spaced_out():
+    """Mit Mindestabstand entstehen die 429 gar nicht erst."""
+    slept: list[float] = []
+    clock = {"t": 0.0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"id": "m"})
+
+    notifier = DiscordNotifier(
+        "https://discord.test/hook",
+        transport=httpx.MockTransport(handler),
+        min_interval=0.6,
+        sleep=slept.append,
+        monotonic=lambda: clock["t"],
+    )
+    notifier.send(_content())
+    assert slept == []          # erster Request wartet nie
+    notifier.send(_content())
+    assert slept == [0.6]       # zweiter haelt den Abstand ein

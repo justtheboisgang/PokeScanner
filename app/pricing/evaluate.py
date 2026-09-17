@@ -24,12 +24,18 @@ from app.costs import PROVIDER_SOLDCOMPS, CostGuard
 from app.models.candidate import Candidate
 from app.models.candidate_card import CandidateCard
 from app.models.card import Card, Variant
-from app.models.enums import Condition, Language, Printing
+from app.models.enums import Channel, Condition, Language, Printing
 from app.pricing.cascade import CascadeConfig
 from app.pricing.resolver import NullResolver, TitleResolver
 from app.pricing.service import ReferenceValueCascade, persist_reference_value
 
 logger = logging.getLogger(__name__)
+
+# Channels whose asking price tracks the market closely enough to use it as a
+# proxy for what the card is worth. On Kleinanzeigen a low price is exactly the
+# edge we are hunting ("weiss nicht was es wert ist"), so the lookup threshold
+# must NEVER gate it there — only where the seller prices at market.
+_PRICED_AT_MARKET = {Channel.EBAY, Channel.EBAY_BROWSE}
 
 
 @dataclass
@@ -228,6 +234,24 @@ def auto_value_candidate(
     resolved = resolver.resolve(listing.title, listing.description)
     if resolved is None:
         return inactive
+
+    # Gate 1c: a lookup costs real money, so skip listings too cheap to yield a
+    # worthwhile find — but only where the price actually says something about
+    # the card (see _PRICED_AT_MARKET). This is what stops the budget from being
+    # spent on Trainer cards worth cents.
+    threshold = Decimal(settings.single_card_lookup_threshold_eur)
+    if (
+        listing.channel in _PRICED_AT_MARKET
+        and listing.price is not None
+        and Decimal(listing.price) < threshold
+        and threshold > 0
+    ):
+        return EvaluationResult(
+            None,
+            None,
+            False,
+            f"Unter der Nachschlagschwelle von {threshold} EUR — nicht bewertet.",
+        )
 
     # Gate 2: only run (and store) when SoldComps can actually value it today.
     @contextmanager

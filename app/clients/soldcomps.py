@@ -28,7 +28,7 @@ from dataclasses import dataclass, field
 
 import httpx
 
-from app.clients.exceptions import QuotaExceededError, RateLimitError
+from app.clients.exceptions import ClientError, QuotaExceededError, RateLimitError
 from app.config import get_settings
 
 # Safety cap so a misbehaving `hasNextPage` can never loop forever.
@@ -165,7 +165,12 @@ class SoldCompsClient:
             self._last_request_at = self._monotonic()
         if resp.status_code == 429:
             self._raise_for_429(resp)
-        resp.raise_for_status()
+        if resp.status_code >= 400:
+            # Surface SoldComps' own explanation (bad parameter, plan limit,
+            # unsupported site, ...). Without it a 400 is unfixable guesswork.
+            raise ClientError(
+                f"SoldComps error {resp.status_code} on {path}: {resp.text[:400]}"
+            )
         return resp.json()
 
     # -- public ------------------------------------------------------------

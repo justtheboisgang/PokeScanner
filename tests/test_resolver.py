@@ -386,3 +386,65 @@ def test_reprints_never_resolve():
 
 def test_reprint_check_is_not_fooled_by_normal_words():
     assert looks_like_reprint("Glurak 4/102 Base Set Holo Deutsch") is False
+
+
+# --- Nachschlagschwelle: Budget nicht fuer Cent-Karten verbrennen -----------
+
+
+def _priced_candidate(db, channel, price, ext):
+    lst = Listing(
+        channel=channel,
+        external_id=ext,
+        title="Windhauch 93/102 Base Set Deutsch",
+        price=Decimal(price),
+        currency="EUR",
+        seller_type=SellerType.PRIVATE,
+        images=[],
+    )
+    db.add(lst)
+    db.flush()
+    cand = Candidate(listing_id=lst.id, matched_search_term="base set")
+    db.add(cand)
+    db.flush()
+    return cand
+
+
+def _auto(db, cand):
+    resolved = ResolvedCard("base1-93", "Windhauch", "93/102", Language.DE,
+                            Printing.NORMAL)
+    return auto_value_candidate(
+        db,
+        cand,
+        resolver=_StubResolver(resolved),
+        settings=get_settings().model_copy(
+            update={"soldcomps_api_key": "sc_test",
+                    "single_card_lookup_threshold_eur": Decimal("15")}
+        ),
+        soldcomps=_soldcomps(),
+        tcgdex=_tcgdex(_one_card_handler({})),
+    )
+
+
+def test_cheap_ebay_listing_is_not_looked_up(db):
+    """Eine 3-EUR-Trainerkarte auf eBay ist keine 0,04 EUR Abfrage wert."""
+    cand = _priced_candidate(db, Channel.EBAY_BROWSE, "3.00", "cheap1")
+    result = _auto(db, cand)
+    assert result.soldcomps_active is False
+    assert "Nachschlagschwelle" in (result.note or "")
+    assert cand.reference_value_id is None
+    assert db.scalars(select(CandidateCard)).all() == []
+
+
+def test_expensive_ebay_listing_is_looked_up(db):
+    cand = _priced_candidate(db, Channel.EBAY_BROWSE, "80.00", "rich1")
+    result = _auto(db, cand)
+    assert result.soldcomps_active is True
+    assert cand.reference_value_id is not None
+
+
+def test_threshold_never_blocks_kleinanzeigen(db):
+    """Auf Kleinanzeigen IST der niedrige Preis der Werthebel — nie blocken."""
+    cand = _priced_candidate(db, Channel.KLEINANZEIGEN, "3.00", "ka_cheap")
+    result = _auto(db, cand)
+    assert result.soldcomps_active is True
+    assert cand.reference_value_id is not None

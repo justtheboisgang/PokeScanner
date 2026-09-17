@@ -193,10 +193,14 @@ def _printing_from_title(low: str) -> Printing:
     return Printing.NORMAL
 
 
+def _says_german(low: str) -> bool:
+    return "deutsch" in low or "german" in low
+
+
 def _language_from_title(low: str, default: Language) -> Language:
     if "englisch" in low or "english" in low:
         return Language.EN
-    if "deutsch" in low or "german" in low:
+    if _says_german(low):
         return Language.DE
     return default
 
@@ -268,23 +272,44 @@ class SingleCardTitleResolver:
         note(f"Tor 2: Namenswoerter fuer die Suche: {', '.join(tokens)}")
 
         lang_code = "de" if self.lang == Language.DE else "en"
-        matches: dict[str, dict] = {}
-        for token in tokens:
-            try:
-                results = self.tcgdex.search_cards(token, lang_code)
-            except Exception:
-                logger.debug("tcgdex search failed for token %r", token, exc_info=True)
-                continue
-            note(f"  TCGdex '{token}': {len(results)} Treffer")
-            for card in results:
-                cid = card.get("id")
-                if not cid:
+
+        def search(lang: str) -> dict[str, dict]:
+            found: dict[str, dict] = {}
+            for token in tokens:
+                try:
+                    results = self.tcgdex.search_cards(token, lang)
+                except Exception:
+                    logger.debug(
+                        "tcgdex search failed for token %r (%s)", token, lang,
+                        exc_info=True,
+                    )
                     continue
-                if (
-                    (found := card_local_id(card)) is not None
-                    and normalize_number(found) == local_id
-                ):
-                    matches[str(cid)] = card
+                note(f"  TCGdex[{lang}] '{token}': {len(results)} Treffer")
+                for card in results:
+                    cid = card.get("id")
+                    if not cid:
+                        continue
+                    if (
+                        (local := card_local_id(card)) is not None
+                        and normalize_number(local) == local_id
+                    ):
+                        found[str(cid)] = card
+            return found
+
+        matches = search(lang_code)
+        resolved_via = lang_code
+
+        # Very many eBay titles carry the card's ENGLISH name even on the German
+        # market ("Growlithe 004/020", "Bulbasaur Base Set"). A German-only
+        # search finds nothing for those — Growlithe is "Fukano" in German — so
+        # every such listing silently stayed unbewertbar. TCGdex ids are the
+        # same in every language, so a second pass in English costs nothing but
+        # a free lookup and rescues the whole international half of the feed.
+        if not matches and lang_code != "en":
+            note("  nichts auf Deutsch gefunden — zweiter Versuch auf Englisch")
+            matches = search("en")
+            if matches:
+                resolved_via = "en"
 
         # The denominator narrows several same-numbered cards down to the set
         # that actually has that many cards.
@@ -320,10 +345,20 @@ class SingleCardTitleResolver:
             note("Tor 2: Treffer ohne Namen -> unbewertbar")
             return None
         note(f"Aufgeloest: {name} ({card['id']})")
+        # Which language actually found the card is evidence in itself: a title
+        # that only matches the English card names is an English card ("Bulbasaur
+        # Shadowless Base Set"), not a German one. Getting this wrong would send
+        # the cascade down the DE->EN language factor for no reason. An explicit
+        # "deutsch" in the title still wins over the inference.
+        language = _language_from_title(low, self.lang)
+        if resolved_via == "en" and not _says_german(low):
+            language = Language.EN
+            note("Sprache: über die englischen Namen gefunden -> als EN gewertet")
+
         return ResolvedCard(
             tcgdex_id=str(card["id"]),
             name=str(name),
             number=f"{int(m.group(1))}/{int(m.group(2))}",
-            language=_language_from_title(low, self.lang),
+            language=language,
             printing=_printing_from_title(low),
         )

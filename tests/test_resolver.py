@@ -510,3 +510,65 @@ def test_auto_valuation_marks_its_cards_as_auto(db):
         select(CandidateCard).where(CandidateCard.candidate_id == cand.id)
     ).all()
     assert [r.source for r in rows] == ["auto"]
+
+
+# --- Zweisprachige Suche: englische Titel auf dem deutschen Markt ----------
+#
+# Sehr viele eBay-Titel tragen den ENGLISCHEN Kartennamen, auch bei deutschen
+# und internationalen Verkaeufern ("Growlithe 004/020", "Bulbasaur Base Set").
+# Die deutsche TCGdex-Suche findet dafuer nichts — Growlithe heisst dort
+# "Fukano" — also blieben all diese Angebote stumm unbewertbar.
+
+_EN_ONLY = {"Bulbasaur": [{"id": "base1-44", "name": "Bulbasaur"}]}
+_DE_ONLY = {"Bisasam": [{"id": "base1-44", "name": "Bisasam"}]}
+
+
+def _bilingual_resolver():
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/sets"):
+            return httpx.Response(200, json=[{"id": "base1",
+                                              "cardCount": {"official": 102}}])
+        q = request.url.params.get("name", "").replace("like:", "")
+        table = _DE_ONLY if "/de/" in request.url.path else _EN_ONLY
+        return httpx.Response(200, json=table.get(q, []))
+
+    return SingleCardTitleResolver(_tcgdex(handler))
+
+
+def test_english_title_resolves_via_english_fallback():
+    resolved = _bilingual_resolver().resolve("Bulbasaur 44/102 Base Set NM", None)
+    assert resolved is not None
+    assert resolved.tcgdex_id == "base1-44"
+
+
+def test_card_found_only_in_english_counts_as_english():
+    """Dass nur die englischen Namen passen, IST der Sprachbeweis."""
+    resolved = _bilingual_resolver().resolve("Bulbasaur 44/102 Base Set NM", None)
+    assert resolved.language == Language.EN
+
+
+def test_explicit_german_in_title_beats_the_inference():
+    resolved = _bilingual_resolver().resolve(
+        "Bulbasaur 44/102 Base Set deutsch NM", None
+    )
+    assert resolved.language == Language.DE
+
+
+def test_german_name_still_resolves_without_english_pass():
+    calls = {"en": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/sets"):
+            return httpx.Response(200, json=[{"id": "base1",
+                                              "cardCount": {"official": 102}}])
+        if "/en/" in request.url.path:
+            calls["en"] += 1
+        q = request.url.params.get("name", "").replace("like:", "")
+        table = _DE_ONLY if "/de/" in request.url.path else _EN_ONLY
+        return httpx.Response(200, json=table.get(q, []))
+
+    r = SingleCardTitleResolver(_tcgdex(handler))
+    resolved = r.resolve("Bisasam 44/102 Base Set", None)
+    assert resolved is not None
+    assert resolved.language == Language.DE
+    assert calls["en"] == 0  # kein unnoetiger zweiter Durchgang

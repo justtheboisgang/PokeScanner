@@ -116,14 +116,17 @@ class ReferenceValueCascade:
                 raw = self.soldcomps.scrape_sold(
                     query, seller_type=seller_type, aspect_filter=aspect
                 )
-            except Exception:
+            except Exception as exc:
+                # Die Meldung reicht; der volle Traceback steht auf DEBUG. Zwei
+                # Tracebacks je Karte machten das Log sonst unlesbar.
                 logger.warning(
-                    "sold comps unavailable for %r (%s) — falling through to the "
-                    "next cascade step",
+                    "sold comps unavailable for %r (%s): %s — falling through to "
+                    "the next cascade step",
                     query,
                     language.value,
-                    exc_info=True,
+                    exc,
                 )
+                logger.debug("sold comps failure detail", exc_info=True)
                 return []
             return within_window(
                 sold_items_to_comps(raw, language=language),

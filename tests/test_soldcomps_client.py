@@ -142,3 +142,33 @@ def test_max_pages_guard_stops_runaway_pagination():
 
     items = _client(handler).scrape_sold("x", max_pages=3)
     assert len(items) == 3
+
+
+def test_search_term_is_sent_as_keyword():
+    """Die API verlangt "keyword". Mit "query" antwortet sie auf JEDEN Aufruf
+    mit 400 ZodError — genau das legte die Verkaufsseite komplett lahm."""
+    seen: dict[str, str] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.update(dict(request.url.params))
+        return httpx.Response(200, json={"items": [], "hasNextPage": False})
+
+    _client(handler).scrape_sold("Rattikarl 40/102")
+    assert seen.get("keyword") == "Rattikarl 40/102"
+    assert "query" not in seen
+
+
+def test_400_surfaces_the_api_explanation():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            400,
+            text='{"success":false,"error":{"issues":[{"path":["keyword"],'
+                 '"message":"Required"}],"name":"ZodError"}}',
+        )
+
+    from app.clients.exceptions import ClientError
+
+    with pytest.raises(ClientError) as exc:
+        _client(handler).scrape_sold("x")
+    assert "keyword" in str(exc.value)
+    assert "400" in str(exc.value)

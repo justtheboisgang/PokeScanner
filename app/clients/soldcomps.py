@@ -188,7 +188,10 @@ class SoldCompsClient:
     ) -> ScrapePage:
         """Fetch a single page of /v1/scrape."""
         params: dict[str, object] = {
-            "query": query,
+            # Der Parameter heisst "keyword". Mit "query" antwortet die API auf
+            # JEDEN Aufruf mit 400 ZodError ('path: ["keyword"], Required') —
+            # ein einziges falsches Wort legte die gesamte Verkaufsseite lahm.
+            "keyword": query,
             "sold": "true" if sold else "false",
             "ebaySite": ebay_site or self.ebay_site,
             "page": page,

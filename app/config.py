@@ -148,6 +148,11 @@ class Settings(BaseSettings):
     )
     # Listings without a price still fire ("VB"/leer ist bei Konvoluten Normalfall).
     alert_require_price: bool = Field(default=False, alias="ALERT_REQUIRE_PRICE")
+    # Obergrenze für Discord-Nachrichten PRO SCAN. Das ist KEINE Alarmschwelle:
+    # jeder Treffer wird weiterhin geprüft, gespeichert und erscheint im Live Feed
+    # — nur die Zustellung wird gedeckelt, plus eine Sammelmeldung. Schützt vor
+    # der Flut beim ersten Lauf (alles neu) und vor Discords Rate-Limit.
+    alert_max_per_poll: int = Field(default=50, alias="ALERT_MAX_PER_POLL")
 
     # --- Poll schedule (staggered, §11) ---
     scheduler_timezone: str = Field(default="Europe/Berlin", alias="SCHEDULER_TIMEZONE")

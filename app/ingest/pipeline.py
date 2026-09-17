@@ -76,6 +76,7 @@ class PollStats:
     skipped_unparseable: int = 0
     deduped: int = 0
     vision_calls: int = 0
+    alerts_suppressed: int = 0
     errors: int = 0
     per_term_new: dict[str, int] = field(default_factory=dict)
     per_source_queries: dict[str, int] = field(default_factory=dict)
@@ -110,6 +111,7 @@ class IngestionPipeline:
         )
         self._hasher = hasher
         self._vision_calls_left = 0
+        self._alerts_left = 0
 
     def _build_auto_valuer(self):
         """Auto valuation callback for enrichment (Block 2.2), or None if off."""
@@ -143,11 +145,13 @@ class IngestionPipeline:
         """Run one poll over every source x active query term."""
         stats = PollStats()
         self._vision_calls_left = self.settings.enrich_vision_max_per_poll
+        self._alerts_left = self.settings.alert_max_per_poll
         if not self.sources:
             logger.warning("no sources configured; poll is a no-op")
             return stats
         for source in self.sources:
             self._poll_source(source, stats)
+        self._report_suppressed(stats)
         self._record_usage(stats)
         logger.info("poll done: %s", stats)
         return stats
@@ -168,6 +172,20 @@ class IngestionPipeline:
                 session.add(UsageEvent(source=HEARTBEAT_SOURCE, calls=1))
         except Exception:
             logger.exception("failed to record usage")
+
+    def _report_suppressed(self, stats: PollStats) -> None:
+        """One summary line instead of a flood — the finds are on the website."""
+        if stats.alerts_suppressed <= 0:
+            return
+        try:
+            self.notifier.send_text(
+                f"ℹ️ PokeScanner: {stats.alerts_suppressed} weitere Treffer in diesem "
+                f"Scan wurden nicht einzeln gemeldet (Grenze "
+                f"{self.settings.alert_max_per_poll} pro Scan). Sie sind gespeichert "
+                f"und stehen im Live Feed."
+            )
+        except Exception:
+            logger.exception("failed to send suppressed-alerts notice")
 
     def _cost_provider(self, source: Source) -> str | None:
         return _CHANNEL_PROVIDER.get(source.channel)
@@ -299,6 +317,13 @@ class IngestionPipeline:
                 image_url=(normalized.images[0] if normalized.images else None),
             )
 
+        # Delivery cap (not an alarm threshold): the candidate is stored either
+        # way and shows up in the Live Feed; only the Discord message is skipped.
+        if self._alerts_left <= 0:
+            stats.alerts_suppressed += 1
+            stats.per_term_new[term] = stats.per_term_new.get(term, 0) + 1
+            return
+
         # Alert I/O outside the transaction (R1: alert is the critical path).
         message_id: str | None = None
         try:
@@ -306,6 +331,7 @@ class IngestionPipeline:
         except Exception:
             logger.exception("Discord send failed for candidate %s", candidate_id)
 
+        self._alerts_left -= 1
         with self.session_factory() as session:
             candidate = session.get(Candidate, candidate_id)
             if candidate is not None:

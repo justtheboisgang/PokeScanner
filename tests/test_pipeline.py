@@ -182,3 +182,54 @@ def test_ebay_without_price_does_not_fire(scoped_factory, db):
 def test_ebay_with_price_fires(scoped_factory, db):
     stats = _poll_one(scoped_factory, Channel.EBAY_BROWSE, "ebay_browse", "40")
     assert stats.alerts_sent == 1
+
+
+# --- Zustell-Grenze pro Scan (keine Alarmschwelle!) -------------------------
+
+
+def _many_listings(channel, n):
+    # Eigenes Bild je Anzeige, sonst greift der Cross-Channel-Dedup (gleicher Hash).
+    return [
+        _listing(channel, f"m{i}", title="Alte Pokemon Karten", images=(f"u{i}",))
+        for i in range(n)
+    ]
+
+
+def _pipeline_capped(scoped_factory, notifier, cap):
+    settings = Settings(ALERT_MAX_PER_POLL=cap)
+    src = FakeSource(
+        Channel.KLEINANZEIGEN,
+        "kleinanzeigen",
+        {"alte pokemon karten": _many_listings(Channel.KLEINANZEIGEN, 10)},
+    )
+    return _pipeline([src], notifier, scoped_factory, hasher=FakeHasher(),
+                     settings=settings)
+
+
+def test_alert_cap_limits_discord_messages(scoped_factory, db):
+    notifier = FakeNotifier()
+    stats = _pipeline_capped(scoped_factory, notifier, cap=3).poll()
+    assert stats.alerts_sent == 3
+    assert stats.alerts_suppressed == 7
+    # 3 Embeds + genau EINE Sammelmeldung, statt zehn Nachrichten.
+    assert len(notifier.sent) == 3
+
+
+def test_capped_finds_are_still_stored_and_countable(scoped_factory, db):
+    """Die Grenze ist eine Zustellgrenze — gefunden wird alles, nichts geht verloren."""
+    from app.models.listing import Listing
+
+    notifier = FakeNotifier()
+    stats = _pipeline_capped(scoped_factory, notifier, cap=3).poll()
+    assert stats.new_listings == 10
+    # Alle zehn liegen in der Datenbank und erscheinen damit im Live Feed.
+    assert db.query(Listing).count() == 10
+    # Und die Messung je Suchbegriff zaehlt weiterhin alle zehn (Diagnose).
+    assert stats.per_term_new["alte pokemon karten"] == 10
+
+
+def test_no_cap_notice_when_under_the_limit(scoped_factory, db):
+    notifier = FakeNotifier()
+    stats = _pipeline_capped(scoped_factory, notifier, cap=50).poll()
+    assert stats.alerts_sent == 10
+    assert stats.alerts_suppressed == 0

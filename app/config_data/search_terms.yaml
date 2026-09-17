@@ -146,6 +146,12 @@ negative:
   - "sortierbox leer"
 
   # Nicht-Karten / Merch
+  - "sammelsticker"
+  - "sticker"
+  - "kollektion"
+  - "tin"
+  - "booster"
+  - "display"
   - "plüsch"
   - "figur"
   - "spielzeug"

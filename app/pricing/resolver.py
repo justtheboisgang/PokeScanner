@@ -92,8 +92,26 @@ def card_local_id(card: dict) -> str | None:
         return str(cid).rsplit("-", 1)[-1]
     return None
 
-# A set-number like "4/102" pins a title to one specific card slot.
+# A set-number like "4/102" pins a title to one specific card slot. The
+# denominator is the set's card count and tells sets with the same card number
+# apart ("2/102" is Base Set, not one of the other sets that also have a 2).
 _NUMBER_RE = re.compile(r"\b(\d{1,3})\s*/\s*(\d{1,3})\b")
+
+# Jubilee/anniversary reprints carry the ORIGINAL's numbering but are worth a
+# fraction of it. Resolving "Turtok 2/102 ... Celebration 25. Jubiläum" to the
+# 1999 Base Set card would invent a huge profit — exactly what R3 forbids. Such
+# titles stay unbewertbar and go to the operator.
+_REPRINT_SUBSTRINGS = ("celebration", "jubil", "classic collection", "anniversar")
+_REPRINT_WORDS = re.compile(
+    r"\b(?:promo|reprint|neudruck|nachdruck|replica|reprodukt)\b", re.IGNORECASE
+)
+
+
+def looks_like_reprint(text: str) -> bool:
+    low = text.lower()
+    return any(h in low for h in _REPRINT_SUBSTRINGS) or bool(
+        _REPRINT_WORDS.search(text)
+    )
 
 # Noise tokens that are never a card name (conditions, printings, generic words).
 _STOP_TOKENS = frozenset(
@@ -193,6 +211,13 @@ class SingleCardTitleResolver:
         self.lang = lang
         self.max_searches = max_searches
 
+    def _set_sizes(self, lang_code: str) -> dict[str, int]:
+        try:
+            return self.tcgdex.set_sizes(lang_code)
+        except Exception:
+            logger.debug("tcgdex set list unavailable", exc_info=True)
+            return {}
+
     def resolve(
         self,
         title: str,
@@ -212,12 +237,19 @@ class SingleCardTitleResolver:
             return None
         note("Tor 1a: kein Konvolut-Stichwort — weiter")
 
+        # Gate 1a': reprints reuse the original's numbering at a fraction of the
+        # value. An automatic value here would be a fantasy, so: hands off.
+        if looks_like_reprint(text):
+            note("Tor 1a: Neudruck/Jubilaeum erkannt -> unbewertbar (Wert waere erfunden)")
+            return None
+
         # Gate 1b: require a set-number ("4/102") — one specific card slot.
         m = _NUMBER_RE.search(text)
         if not m:
             note("Tor 1b: keine Kartennummer wie 4/102 im Titel -> unbewertbar")
             return None
         local_id = normalize_number(m.group(1))
+        set_size = int(m.group(2))
         note(f"Tor 1b: Kartennummer {m.group(1)}/{m.group(2)} gefunden")
 
         # Name tokens: longest first, drop noise. Try the strongest few.
@@ -253,6 +285,24 @@ class SingleCardTitleResolver:
                     and normalize_number(found) == local_id
                 ):
                     matches[str(cid)] = card
+
+        # The denominator narrows several same-numbered cards down to the set
+        # that actually has that many cards.
+        if len(matches) > 1:
+            sizes = self._set_sizes(lang_code)
+            narrowed = {
+                cid: card
+                for cid, card in matches.items()
+                if sizes.get(str(cid).rsplit("-", 1)[0]) == set_size
+            }
+            if len(narrowed) == 1:
+                note(
+                    f"Tor 2: {len(matches)} Kandidaten, per Set-Groesse /{set_size} "
+                    f"eingegrenzt auf {next(iter(narrowed))}"
+                )
+                matches = narrowed
+            elif narrowed:
+                matches = narrowed
 
         # Gate 2: exactly one distinct card, or it's ambiguous -> unbewertbar.
         if len(matches) != 1:

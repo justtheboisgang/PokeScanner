@@ -76,6 +76,7 @@ class TCGdexClient:
         self._client = httpx.Client(
             base_url=self.base_url, transport=transport, timeout=timeout
         )
+        self._sets_cache: dict[str, list[dict]] = {}
 
     def __enter__(self) -> "TCGdexClient":
         return self
@@ -107,6 +108,39 @@ class TCGdexClient:
         resp.raise_for_status()
         data = resp.json()
         return list(data)[:limit] if isinstance(data, list) else []
+
+    def get_sets(self, lang: str | None = None) -> list[dict]:
+        """All sets with their card counts. Cached — the list barely changes.
+
+        Needed to read the denominator of a card number: "2/102" means a set
+        with 102 cards, which tells Base Set apart from every other set that
+        also has a card number 2.
+        """
+        lang = lang or self.primary_lang
+        cached = self._sets_cache.get(lang)
+        if cached is not None:
+            return cached
+        resp = self._client.get(f"/{lang}/sets")
+        if resp.status_code == 404:
+            self._sets_cache[lang] = []
+            return []
+        resp.raise_for_status()
+        data = resp.json()
+        sets = list(data) if isinstance(data, list) else []
+        self._sets_cache[lang] = sets
+        return sets
+
+    def set_sizes(self, lang: str | None = None) -> dict[str, int]:
+        """Map set id -> official card count ("102" in "2/102")."""
+        sizes: dict[str, int] = {}
+        for item in self.get_sets(lang):
+            set_id = item.get("id")
+            count = item.get("cardCount")
+            if isinstance(count, dict):
+                count = count.get("official") or count.get("total")
+            if set_id and isinstance(count, int) and count > 0:
+                sizes[str(set_id)] = count
+        return sizes
 
     def get_card(self, card_id: str, lang: str | None = None) -> dict | None:
         """Fetch one card. Returns None on 404 (card not in that language)."""

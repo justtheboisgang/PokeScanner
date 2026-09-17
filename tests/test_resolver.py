@@ -25,6 +25,7 @@ from app.pricing.resolver import (
     SingleCardTitleResolver,
     card_local_id,
     looks_like_bundle,
+    looks_like_reprint,
     normalize_number,
 )
 
@@ -326,3 +327,62 @@ def test_local_id_falls_back_to_the_card_id():
 def test_card_numbers_compare_without_leading_zeros():
     assert normalize_number("002") == normalize_number("2")
     assert normalize_number("SWSH001") == "swsh001"
+
+
+# --- Nenner der Kartennummer + Neudruck-Sperre ------------------------------
+
+_SETS = [
+    {"id": "base1", "cardCount": {"official": 102}},
+    {"id": "dp3", "cardCount": {"official": 100}},
+    {"id": "pl1", "cardCount": {"official": 127}},
+]
+
+
+def _resolver_with_sets(cards_by_token):
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/sets"):
+            return httpx.Response(200, json=_SETS)
+        q = request.url.params.get("name", "").replace("like:", "")
+        return httpx.Response(200, json=cards_by_token.get(q, []))
+
+    return SingleCardTitleResolver(_tcgdex(handler))
+
+
+def test_denominator_narrows_same_numbered_cards():
+    """"2/102" heisst: Set mit 102 Karten. Das trennt Base Set von den anderen."""
+    r = _resolver_with_sets(
+        {"Turtok": [
+            {"id": "dp3-2", "name": "Turtok"},
+            {"id": "base1-2", "name": "Turtok"},
+            {"id": "pl1-2", "name": "Turtok"},
+        ]}
+    )
+    resolved = r.resolve("Turtok 2/102 Rare Holo Deutsch Base Set 1999", None)
+    assert resolved is not None
+    assert resolved.tcgdex_id == "base1-2"
+
+
+def test_denominator_that_matches_nothing_stays_unbewertbar():
+    r = _resolver_with_sets(
+        {"Turtok": [{"id": "dp3-2", "name": "Turtok"}, {"id": "pl1-2", "name": "Turtok"}]}
+    )
+    # Kein Set mit 999 Karten -> die Mehrdeutigkeit bleibt bestehen.
+    assert r.resolve("Turtok 2/999 Deutsch", None) is None
+
+
+def test_reprints_never_resolve():
+    """Neudrucke tragen die Nummern des Originals, sind aber ein Bruchteil wert."""
+    r = _resolver_with_sets({"Turtok": [{"id": "base1-2", "name": "Turtok"}]})
+    for title in (
+        "Turtok 2/102 Rare Holo Deutsch Celebration 25. Jubiläum",
+        "Turtok 2/102 Classic Collection",
+        "Turtok 2/102 Promo",
+        "Turtok 2/102 Neudruck",
+    ):
+        assert r.resolve(title, None) is None, title
+    # Ohne Neudruck-Hinweis loest dieselbe Karte sehr wohl auf.
+    assert r.resolve("Turtok 2/102 Base Set 1999 Deutsch", None) is not None
+
+
+def test_reprint_check_is_not_fooled_by_normal_words():
+    assert looks_like_reprint("Glurak 4/102 Base Set Holo Deutsch") is False

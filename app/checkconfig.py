@@ -135,6 +135,15 @@ def report(settings: Settings | None = None) -> bool:
         line(OK, "Apify-Runs pro Tag", f"{polls * n}  (Budget {s.budget_apify_daily_eur} EUR/Tag)")
     if eb:
         line(OK, "eBay-Calls pro Tag", f"{polls * n}  (gratis, Limit ca. 5000)")
+    # Die Schwelle stammt oft aus der .env und ueberschreibt die Vorgabe. Sie
+    # hier zu zeigen erspart die Sucherei, wenn "alles unbewertbar" gemeldet wird.
+    thr = s.single_card_lookup_threshold_eur
+    line(
+        OK if thr <= 5 else OFF,
+        "Nachschlagschwelle",
+        f"{thr} EUR — eBay-Angebote darunter werden nicht bewertet"
+        + ("" if thr <= 5 else "  <- hoch, blockiert evtl. echte Funde"),
+    )
 
     print("\nWebsite:")
     line(

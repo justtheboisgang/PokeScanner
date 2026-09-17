@@ -133,6 +133,15 @@ class Settings(BaseSettings):
     # Treffern nie auf — der Scanner saehe es nie. Fuer einen Schnaeppchenjaeger
     # zaehlt Aktualitaet (R1), also newlyListed. Leer = eBays Standard.
     ebay_browse_sort: str = Field(default="newlyListed", alias="EBAY_BROWSE_SORT")
+    # Herkunftsfilter (ISO-Laendercodes, kommagetrennt). Default: EU. Innerhalb
+    # der EU faellt kein Zoll an, es bleiben reine Versandkosten — bei Ware aus
+    # GB (Brexit) oder Japan kaemen Zoll und Einfuhrumsatzsteuer dazu, die in der
+    # Gewinnrechnung NICHT stecken. Ein Angebot von dort saehe also guenstiger
+    # aus, als es ist. Leer = weltweit, dann musst du selbst aufpassen.
+    ebay_item_location_countries: str = Field(
+        default="DE,AT,BE,BG,HR,CY,CZ,DK,EE,FI,FR,GR,HU,IE,IT,LV,LT,LU,MT,NL,PL,PT,RO,SK,SI,ES,SE",
+        alias="EBAY_ITEM_LOCATION_COUNTRIES",
+    )
 
     # --- Cost guard (Block 0) — Stück-Kosten (Schätzung, empirisch anpassen) ---
     cost_apify_per_listing_eur: Decimal = Field(
@@ -242,6 +251,11 @@ class Settings(BaseSettings):
 
     # --- Discord (§8) ---
     discord_webhook_url: str = Field(default="", alias="DISCORD_WEBHOOK_URL")
+
+    @property
+    def ebay_location_country_list(self) -> list[str]:
+        raw = self.ebay_item_location_countries or ""
+        return [c.strip().upper() for c in raw.split(",") if c.strip()]
 
     @property
     def cors_origins_list(self) -> list[str]:

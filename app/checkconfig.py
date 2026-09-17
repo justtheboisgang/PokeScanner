@@ -90,6 +90,15 @@ def report(settings: Settings | None = None) -> bool:
             else "aus"
         ),
     )
+    if eb:
+        countries = s.ebay_location_country_list
+        line(
+            OK if countries else OFF,
+            "eBay-Herkunft",
+            f"{len(countries)} Laender ({', '.join(countries[:4])}…)"
+            if countries
+            else "weltweit — Zoll/Einfuhrsteuer sind NICHT eingerechnet",
+        )
     line(
         OK if eb else OFF,
         "eBay Browse",

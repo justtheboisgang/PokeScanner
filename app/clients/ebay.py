@@ -40,6 +40,7 @@ class EbayBrowseClient:
         self.oauth_url = oauth_url or settings.ebay_oauth_url
         self.marketplace = marketplace or settings.ebay_marketplace
         self.sort = settings.ebay_browse_sort
+        self.location_countries = settings.ebay_location_country_list
         self._client = httpx.Client(transport=transport, timeout=timeout)
         self._monotonic = monotonic
         self._token: str | None = None
@@ -90,6 +91,13 @@ class EbayBrowseClient:
         chosen = self.sort if sort is None else sort
         if chosen:
             params["sort"] = chosen
+        # Herkunft eingrenzen: Zoll und Einfuhrsteuer aus Drittlaendern stecken
+        # nicht in der Gewinnrechnung, ein Angebot von dort waere also
+        # systematisch zu guenstig dargestellt.
+        if self.location_countries:
+            params["filter"] = (
+                "itemLocationCountry:{" + "|".join(self.location_countries) + "}"
+            )
         resp = self._client.get(
             f"{self.base_url}/buy/browse/v1/item_summary/search",
             params=params,

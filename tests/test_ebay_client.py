@@ -102,3 +102,21 @@ def test_sort_can_be_switched_off():
 
     _client(handler).search_active("glurak holo", sort="")
     assert "sort" not in seen
+
+
+def test_search_restricts_to_configured_countries():
+    """Zoll und Einfuhrsteuer stecken nicht in der Gewinnrechnung — Ware aus
+    Drittlaendern saehe daher guenstiger aus, als sie ist."""
+    seen: dict[str, str] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if "oauth" in str(request.url):
+            return httpx.Response(200, json={"access_token": "t", "expires_in": 7200})
+        seen.update(dict(request.url.params))
+        return httpx.Response(200, json={"itemSummaries": []})
+
+    _client(handler).search_active("glurak holo")
+    f = seen.get("filter", "")
+    assert f.startswith("itemLocationCountry:{")
+    assert "DE" in f and "IT" in f
+    assert "GB" not in f and "JP" not in f     # Drittlaender bleiben draussen

@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from sqlalchemy.orm import Session
 
 from app.alerts.discord import AlertContent, DiscordNotifier
-from app.clients.exceptions import QuotaExceededError
+from app.clients.exceptions import ClientError, QuotaExceededError
 from app.config import Settings, get_settings
 from app.config_data import SearchTerms, load_search_terms
 from app.costs import PROVIDER_APIFY, CostGuard
@@ -54,6 +54,28 @@ _CHANNEL_PROVIDER = {
     Channel.WILLHABEN: PROVIDER_APIFY,
     Channel.EBAY_BROWSE: None,
 }
+
+# Signatures of account-level failures: the provider is refusing everything, so
+# retrying the remaining search terms in this poll only wastes calls and buries
+# the rest of the log under identical tracebacks.
+_HARD_FAILURE_MARKERS = (
+    "hard limit",
+    "usage limit",
+    "feature-disabled",
+    "quota",
+    "insufficient",
+    "not authorized",
+    "unauthorized",
+    "forbidden",
+    "invalid token",
+    "payment",
+)
+
+
+def _is_account_level_failure(exc: Exception) -> bool:
+    text = str(exc).lower()
+    return any(marker in text for marker in _HARD_FAILURE_MARKERS)
+
 
 # Channels where a listing WITHOUT a price must not fire (Block 5).
 # Kleinanzeigen/willhaben: "VB" or an empty price is the normal case for a
@@ -227,6 +249,20 @@ class IngestionPipeline:
                     "quota reached for source %s; stopping it this poll", source.name
                 )
                 return
+            except ClientError as exc:
+                stats.errors += 1
+                if _is_account_level_failure(exc):
+                    # Same answer for every term — say it once and move on, so
+                    # the real problems stay visible in the log.
+                    logger.error(
+                        "source %s is refusing requests (account level), skipping it "
+                        "for this poll: %s",
+                        source.name,
+                        exc,
+                    )
+                    return
+                logger.exception("source %s failed for term %r", source.name, term)
+                continue
             except Exception:
                 logger.exception("source %s failed for term %r", source.name, term)
                 stats.errors += 1

@@ -233,3 +233,60 @@ def test_no_cap_notice_when_under_the_limit(scoped_factory, db):
     stats = _pipeline_capped(scoped_factory, notifier, cap=50).poll()
     assert stats.alerts_sent == 10
     assert stats.alerts_suppressed == 0
+
+
+# --- Konto-Limit: einmal melden, nicht zehnmal ------------------------------
+
+
+class _FailingSource:
+    channel = Channel.KLEINANZEIGEN
+    name = "kleinanzeigen"
+
+    def __init__(self, exc):
+        self.exc = exc
+        self.calls = 0
+
+    def fetch(self, term):
+        self.calls += 1
+        raise self.exc
+
+
+def test_account_level_failure_stops_the_source_after_one_try(scoped_factory, db):
+    """Ein Konto-Limit gilt fuer jeden Begriff — neunmal nachfassen ist sinnlos."""
+    from app.clients.exceptions import ClientError
+
+    src = _FailingSource(
+        ClientError('Apify error 403: {"type":"platform-feature-disabled",'
+                    '"message":"Monthly usage hard limit exceeded"}')
+    )
+    terms = SearchTerms(positive=(), negative=(), active=("a", "b", "c", "d"))
+    pipe = IngestionPipeline(
+        [src], FakeNotifier(), session_factory=scoped_factory,
+        settings=Settings(), search_terms=terms, hasher=FakeHasher(),
+        enrichment=EnrichmentService(
+            VisionAnalyzer(enabled=False), FakeNotifier(),
+            session_factory=scoped_factory,
+        ),
+    )
+    stats = pipe.poll()
+    assert src.calls == 1          # nicht vier Mal
+    assert stats.errors == 1
+
+
+def test_transient_failure_keeps_trying_the_other_terms(scoped_factory, db):
+    """Ein einzelner Aussetzer darf die ganze Quelle nicht abwuergen."""
+    from app.clients.exceptions import ClientError
+
+    src = _FailingSource(ClientError("Apify error 502: upstream hiccup"))
+    terms = SearchTerms(positive=(), negative=(), active=("a", "b", "c"))
+    pipe = IngestionPipeline(
+        [src], FakeNotifier(), session_factory=scoped_factory,
+        settings=Settings(), search_terms=terms, hasher=FakeHasher(),
+        enrichment=EnrichmentService(
+            VisionAnalyzer(enabled=False), FakeNotifier(),
+            session_factory=scoped_factory,
+        ),
+    )
+    stats = pipe.poll()
+    assert src.calls == 3
+    assert stats.errors == 3

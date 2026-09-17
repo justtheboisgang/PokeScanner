@@ -84,8 +84,15 @@ class Settings(BaseSettings):
     buy_threshold_pickup_eur: Decimal = Field(
         default=Decimal("80"), alias="BUY_THRESHOLD_PICKUP_EUR"
     )
+    # Unterhalb dieses Angebotspreises wird keine Einzelkarte nachgeschlagen —
+    # aber nur auf Kanaelen, wo der Preis dem Markt folgt (eBay). Eine Bewertung
+    # kostet rund 0,04 EUR, das Tagesbudget traegt ~75 davon; bei wenigen neuen
+    # Treffern pro Scan ist das Budget nie der Engpass. Ein hoher Wert wirft
+    # daher vor allem Funde weg: 15 EUR blockierte vier von fuenf Kandidaten,
+    # allesamt knapp darunter. 5 EUR haelt Cent-Trainerkarten draussen und
+    # laesst echte Karten durch.
     single_card_lookup_threshold_eur: Decimal = Field(
-        default=Decimal("15"), alias="SINGLE_CARD_LOOKUP_THRESHOLD_EUR"
+        default=Decimal("5"), alias="SINGLE_CARD_LOOKUP_THRESHOLD_EUR"
     )
 
     # --- Apify (Kleinanzeigen, §4.4) ---

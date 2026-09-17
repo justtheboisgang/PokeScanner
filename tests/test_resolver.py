@@ -19,7 +19,14 @@ from app.models.candidate_card import CandidateCard
 from app.models.enums import Channel, Language, Printing, SellerType
 from app.models.listing import Listing
 from app.pricing.evaluate import auto_value_candidate
-from app.pricing.resolver import NullResolver, ResolvedCard, SingleCardTitleResolver
+from app.pricing.resolver import (
+    NullResolver,
+    ResolvedCard,
+    SingleCardTitleResolver,
+    card_local_id,
+    looks_like_bundle,
+    normalize_number,
+)
 
 
 def _tcgdex(handler) -> TCGdexClient:
@@ -245,3 +252,77 @@ def test_auto_value_respects_existing_manual_cards(db):
     ).all()
     assert len(cards) == 1
     assert cards[0].variant_id == variant.id
+
+
+# --- Echte eBay-Titel (Regression) -----------------------------------------
+#
+# Beim ersten Live-Lauf blieben ALLE eBay-Einzelkarten unbewertbar. Drei Fehler:
+#   1. "sammel" sperrte "Sammelkarte" — das deutsche Wort fuer EINE Karte.
+#   2. Der Abgleich hing allein an localId; fehlt es in der Kurzantwort, passte
+#      nie etwas.
+#   3. Fuellwoerter wie "Sammelkarte"/"TCG" verdraengten als laengere Tokens den
+#      echten Kartennamen aus der Suche.
+
+
+_REAL_CARDS = {
+    "Starmie": [{"id": "base1-64", "name": "Starmie"}],
+    "Arktos": [{"id": "fossil1-2", "name": "Arktos"}],
+    "Schiggy": [{"id": "base1-63", "name": "Schiggy"}],
+    "Raichu": [{"id": "base1-14", "name": "Raichu"},
+               {"id": "fossil1-29", "name": "Raichu"}],
+}
+
+
+def _real_resolver():
+    def handler(request: httpx.Request) -> httpx.Response:
+        q = request.url.params.get("name", "").replace("like:", "")
+        # Absichtlich OHNE localId — genau die Antwortform, die alles brach.
+        return httpx.Response(200, json=_REAL_CARDS.get(q, []))
+
+    return SingleCardTitleResolver(_tcgdex(handler))
+
+
+def test_real_ebay_single_card_titles_resolve():
+    r = _real_resolver()
+    cases = [
+        ("Starmie 64/102 Base Set 1. Edition 1st Ed Deutsch Pokemon Sammelkarte TCG",
+         "base1-64"),
+        ("Pokemon Karte Arktos 2/62 1. Edition Holo Base Set Fossil Rare Deutsch",
+         "fossil1-2"),
+        ("Schiggy - 1. Edition - Base Set - 63/102 - Pokemon Karte - Deutsch",
+         "base1-63"),
+        ("Raichu - 1. Edition - Fossil - 29/62 - Pokemon Karte - Deutsch",
+         "fossil1-29"),
+    ]
+    for title, expected in cases:
+        resolved = r.resolve(title, None)
+        assert resolved is not None, f"blieb unbewertbar: {title}"
+        assert resolved.tcgdex_id == expected, title
+
+
+def test_sammelkarte_is_not_a_bundle():
+    """'Sammelkarte' heisst EINE Karte — das darf nie als Konvolut gelten."""
+    assert looks_like_bundle("Starmie 64/102 Deutsch Pokemon Sammelkarte") is False
+    assert looks_like_bundle("Pokemon Sammelkartenspiel Base Set") is False
+
+
+def test_real_bundles_are_still_blocked():
+    for title in (
+        "160 Vintage Pokemon Karten Sammlung Deutsch mit Holo & 1. Edition",
+        "Komplette PKM TCG WOTC Team Rocket Pokémon-Kartensammlung der 1. Edition",
+        "Pokémon Sammelkartenspiel Base Set 20 Karten Lot Deutsch WotC",
+        "10x Pokémon Karte 1st Edition Paket WOTC Base Set Neo Deutsch",
+    ):
+        assert looks_like_bundle(title) is True, title
+
+
+def test_local_id_falls_back_to_the_card_id():
+    """Ohne diesen Rueckfall loest nichts auf, wenn TCGdex localId weglaesst."""
+    assert card_local_id({"id": "base1-63"}) == "63"
+    assert card_local_id({"id": "base1-63", "localId": "63"}) == "63"
+    assert card_local_id({"id": "nodash"}) is None
+
+
+def test_card_numbers_compare_without_leading_zeros():
+    assert normalize_number("002") == normalize_number("2")
+    assert normalize_number("SWSH001") == "swsh001"

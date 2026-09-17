@@ -10,8 +10,8 @@ The gate is deliberately precision-over-recall:
   1. Reject any title that looks like a bundle (keyword hints).
   2. Require a set-number pattern (e.g. ``4/102``) — the strongest signal that a
      title is about ONE specific card, not a pile.
-  3. Search TCGdex for the title's name tokens, keep only cards whose ``localId``
-     matches the number, and resolve only when exactly ONE distinct card remains.
+  3. Search TCGdex for the title's name tokens, keep only cards whose printed
+     number matches, and resolve only when exactly ONE distinct card remains.
 Anything short of that returns None (unbewertbar), which is the normal case.
 """
 
@@ -49,26 +49,48 @@ class NullResolver:
         return None
 
 
-# Words that mark a listing as a pile of cards, never a single card.
-_BUNDLE_HINTS = (
-    "konvolut",
-    "sammlung",
-    "sammel",
-    "lot",
-    "bundle",
-    "posten",
-    "paket",
-    "kiloware",
-    "ordner",
-    "mappe",
-    "album",
-    "karton",
-    "kiste",
-    "diverse",
-    "verschiedene",
-    "sortiment",
-    "menge",
+# Unambiguous bundle words. Matched anywhere in the text so German compounds
+# are caught too ("Pokemon-Kartensammlung"). "sammel" is deliberately NOT here:
+# "Sammelkarte" is the ordinary German word for a SINGLE trading card, and
+# blocking on it threw away exactly the single-card listings we want.
+_BUNDLE_SUBSTRINGS = ("konvolut", "sammlung", "kiloware", "sortiment")
+
+# Short or ambiguous words — whole words only, so they cannot fire inside an
+# unrelated word.
+_BUNDLE_WORDS = re.compile(
+    r"\b(?:lot|bundle|posten|paket|ordner|mappe|album|karton|kiste|menge|"
+    r"diverse|verschiedene)\b",
+    re.IGNORECASE,
 )
+
+
+def looks_like_bundle(text: str) -> bool:
+    low = text.lower()
+    return any(h in low for h in _BUNDLE_SUBSTRINGS) or bool(
+        _BUNDLE_WORDS.search(text)
+    )
+
+
+def normalize_number(value: object) -> str:
+    """Compare card numbers regardless of leading zeros ("002" == "2")."""
+    raw = str(value).strip()
+    return str(int(raw)) if raw.isdigit() else raw.lower()
+
+
+def card_local_id(card: dict) -> str | None:
+    """The number printed on the card.
+
+    TCGdex brief cards usually carry ``localId``, but not always — and relying
+    on it alone silently made every lookup fail. Ids look like "base1-63", so
+    the segment after the last dash is the same number.
+    """
+    raw = card.get("localId")
+    if raw is not None and str(raw).strip():
+        return str(raw).strip()
+    cid = card.get("id")
+    if cid and "-" in str(cid):
+        return str(cid).rsplit("-", 1)[-1]
+    return None
 
 # A set-number like "4/102" pins a title to one specific card slot.
 _NUMBER_RE = re.compile(r"\b(\d{1,3})\s*/\s*(\d{1,3})\b")
@@ -104,6 +126,39 @@ _STOP_TOKENS = frozenset(
         "base",
         "set",
         "basis",
+        # Aus echten eBay-Titeln: Wortkoerper, die keine Kartennamen sind und
+        # sonst — weil laenger — den echten Namen aus der Suche verdraengen.
+        "sammelkarte",
+        "sammelkarten",
+        "sammelkartenspiel",
+        "tcg",
+        "wotc",
+        "pkm",
+        "komplette",
+        "komplett",
+        "stueck",
+        "stück",
+        # Set-Namen: TCGdex sucht nach KARTEN-Namen, hier faenden sie nichts.
+        "fossil",
+        "jungle",
+        "rocket",
+        "team",
+        "gym",
+        "neo",
+        "expedition",
+        "edition",
+        # Zustand / Beschreibung.
+        "excellent",
+        "nearmint",
+        "bespielt",
+        "gebraucht",
+        "fehldruck",
+        "misscut",
+        "swirl",
+        "franzoesisch",
+        "französisch",
+        "deutsche",
+        "sammlung",
     }
 )
 
@@ -138,19 +193,32 @@ class SingleCardTitleResolver:
         self.lang = lang
         self.max_searches = max_searches
 
-    def resolve(self, title: str, description: str | None) -> ResolvedCard | None:
+    def resolve(
+        self,
+        title: str,
+        description: str | None,
+        trace: list[str] | None = None,
+    ) -> ResolvedCard | None:
+        def note(msg: str) -> None:
+            if trace is not None:
+                trace.append(msg)
+
         text = title or ""
         low = text.lower()
 
         # Gate 1a: bundles never auto-resolve.
-        if any(hint in low for hint in _BUNDLE_HINTS):
+        if looks_like_bundle(text):
+            note("Tor 1a: als Konvolut erkannt (Bundle-Stichwort) -> unbewertbar")
             return None
+        note("Tor 1a: kein Konvolut-Stichwort — weiter")
 
         # Gate 1b: require a set-number ("4/102") — one specific card slot.
         m = _NUMBER_RE.search(text)
         if not m:
+            note("Tor 1b: keine Kartennummer wie 4/102 im Titel -> unbewertbar")
             return None
-        local_id = str(int(m.group(1)))
+        local_id = normalize_number(m.group(1))
+        note(f"Tor 1b: Kartennummer {m.group(1)}/{m.group(2)} gefunden")
 
         # Name tokens: longest first, drop noise. Try the strongest few.
         tokens = sorted(
@@ -163,7 +231,9 @@ class SingleCardTitleResolver:
             reverse=True,
         )[: self.max_searches]
         if not tokens:
+            note("Tor 2: kein brauchbares Namenswort im Titel -> unbewertbar")
             return None
+        note(f"Tor 2: Namenswoerter fuer die Suche: {', '.join(tokens)}")
 
         lang_code = "de" if self.lang == Language.DE else "en"
         matches: dict[str, dict] = {}
@@ -173,21 +243,33 @@ class SingleCardTitleResolver:
             except Exception:
                 logger.debug("tcgdex search failed for token %r", token, exc_info=True)
                 continue
+            note(f"  TCGdex '{token}': {len(results)} Treffer")
             for card in results:
                 cid = card.get("id")
                 if not cid:
                     continue
-                if str(card.get("localId")) == local_id:
+                if (
+                    (found := card_local_id(card)) is not None
+                    and normalize_number(found) == local_id
+                ):
                     matches[str(cid)] = card
 
         # Gate 2: exactly one distinct card, or it's ambiguous -> unbewertbar.
         if len(matches) != 1:
+            note(
+                f"Tor 2: {len(matches)} Karten mit Nummer {local_id} — "
+                + ("keine gefunden" if not matches
+                   else "mehrdeutig: " + ", ".join(matches))
+                + " -> unbewertbar"
+            )
             return None
 
         card = next(iter(matches.values()))
         name = card.get("name")
         if not name:
+            note("Tor 2: Treffer ohne Namen -> unbewertbar")
             return None
+        note(f"Aufgeloest: {name} ({card['id']})")
         return ResolvedCard(
             tcgdex_id=str(card["id"]),
             name=str(name),

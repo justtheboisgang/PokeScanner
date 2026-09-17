@@ -270,6 +270,22 @@ class CascadeLevelError(BaseModel):
     avg_abs_forecast_error_eur: float | None
 
 
+class MarketComparison(BaseModel):
+    """Was wirklich gezahlt wurde vs. was der Markt verlangt.
+
+    Das Verhältnis ist die eigentliche Kennzahl: unter 1,0 heißt, dass echte
+    Verkäufe unter dem Cardmarket-Preis liegen — dann ist ein "Schnäppchen"
+    gegenüber dem Trendpreis gar keines. Gemessen, nicht geraten.
+    """
+
+    sample_size: int
+    median_ratio: float | None
+    mean_ratio: float | None
+    median_sold_eur: float | None
+    median_market_eur: float | None
+    verdict: str
+
+
 class CalibrationSummary(BaseModel):
     total_candidates: int
     alerts_per_channel: dict[str, int]
@@ -282,6 +298,7 @@ class CalibrationSummary(BaseModel):
     avg_forecast_error_eur: float | None
     avg_abs_forecast_error_eur: float | None
     per_cascade_level: list[CascadeLevelError] = []
+    market_comparison: MarketComparison | None = None
 
 
 class TermDiagnostic(BaseModel):

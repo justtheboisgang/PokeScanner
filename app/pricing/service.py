@@ -15,6 +15,7 @@ import logging
 from datetime import datetime
 
 from app.clients.soldcomps import SoldCompsClient
+from app.clients.pokewallet import MarketPricing
 from app.clients.tcgdex import CardmarketPricing, TCGdexClient
 from app.models.card import Card, Variant
 from app.models.enums import Language
@@ -55,7 +56,31 @@ class ReferenceValueCascade:
         self.tcgdex = tcgdex
         self.config = config or CascadeConfig.from_settings()
 
-    def _cardmarket(self, card: Card) -> CardmarketPricing | None:
+    @staticmethod
+    def _from_market(market: MarketPricing | None) -> CardmarketPricing | None:
+        """Use a PokeWallet snapshot as the Stufe-4 input — EUR side only.
+
+        TCGPlayer figures are USD and are deliberately left out: mixing
+        currencies into a reference value would fake precision (§6).
+        """
+        if market is None or not market.has_eur:
+            return None
+        return CardmarketPricing(
+            avg=market.cm_avg,
+            low=market.cm_low,
+            trend=market.cm_trend,
+            avg7=market.cm_avg7,
+            avg30=market.cm_avg30,
+        )
+
+    def _cardmarket(
+        self, card: Card, market: MarketPricing | None = None
+    ) -> CardmarketPricing | None:
+        # A supplied snapshot wins: it was fetched for this exact card and
+        # covers German vintage far better than TCGdex's spotty pricing block.
+        from_market = self._from_market(market)
+        if from_market is not None:
+            return from_market
         if not card.tcgdex_id:
             return None
         return self.tcgdex.get_cardmarket_pricing(card.tcgdex_id)
@@ -70,8 +95,13 @@ class ReferenceValueCascade:
         en_aspect_filter: dict | None = None,
         seller_type: str | None = None,
         now: datetime | None = None,
+        market: MarketPricing | None = None,
     ) -> ReferenceResult:
-        """Run the full cascade for one variant."""
+        """Run the full cascade for one variant.
+
+        `market` is an already-fetched ask-side snapshot (PokeWallet). It only
+        ever feeds Stufe 4 — the sold-comp steps above it are untouched.
+        """
         query = query or build_query(card)
 
         def sold(aspect: dict | None, language: Language) -> list:
@@ -118,7 +148,7 @@ class ReferenceValueCascade:
             variant_printing=variant.printing,
             comps_same_lang=comps_same,
             comps_english=comps_english,
-            cardmarket=self._cardmarket(card),
+            cardmarket=self._cardmarket(card, market),
             config=self.config,
         )
 

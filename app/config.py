@@ -49,6 +49,19 @@ class Settings(BaseSettings):
     )
     tcgdex_primary_lang: str = Field(default="de", alias="TCGDEX_PRIMARY_LANG")
 
+    # --- PokeWallet (Marktpreise: Angebotsseite, NICHT echte Verkäufe) ---
+    # Ergänzt die Kaskade auf Stufe 4 und wird vor allem NEBEN dem echten
+    # Verkaufswert festgehalten, damit die Lücke zwischen "wurde gezahlt" und
+    # "soll kosten" messbar wird statt geraten. Leer = aus.
+    pokewallet_api_key: str = Field(default="", alias="POKEWALLET_API_KEY")
+    pokewallet_base_url: str = Field(
+        default="https://api.pokewallet.io", alias="POKEWALLET_BASE_URL"
+    )
+    # Gratis-Tarif: 100 Abfragen/Stunde. Abstand halten statt Fenster zählen.
+    pokewallet_min_interval_seconds: float = Field(
+        default=1.0, alias="POKEWALLET_MIN_INTERVAL_SECONDS"
+    )
+
     # --- Reference value cascade (§6) ---
     cascade_min_sample_size: int = Field(default=5, alias="CASCADE_MIN_SAMPLE_SIZE")
     cascade_window_days: int = Field(default=90, alias="CASCADE_WINDOW_DAYS")

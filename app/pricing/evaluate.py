@@ -17,6 +17,7 @@ from decimal import Decimal
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.clients.pokewallet import MarketPricing, PokeWalletClient
 from app.clients.soldcomps import SoldCompsClient
 from app.clients.tcgdex import TCGdexClient
 from app.config import Settings, get_settings
@@ -25,6 +26,7 @@ from app.models.candidate import Candidate
 from app.models.candidate_card import CandidateCard
 from app.models.card import Card, Variant
 from app.models.enums import Channel, Condition, Language, Printing
+from app.models.market_snapshot import MarketSnapshot
 from app.pricing.cascade import CascadeConfig
 from app.pricing.resolver import NullResolver, TitleResolver
 from app.pricing.service import ReferenceValueCascade, persist_reference_value
@@ -96,6 +98,54 @@ def _get_or_create_variant(session: Session, card: Card, entry: CardEntry) -> Va
     return variant
 
 
+def _fetch_market(
+    pokewallet: PokeWalletClient | None, card: Card, entry: CardEntry
+) -> MarketPricing | None:
+    """One ask-side lookup per card: feeds Stufe 4 AND gets stored for analysis."""
+    if pokewallet is None or not pokewallet.enabled:
+        return None
+    try:
+        return pokewallet.pricing_for(
+            card.name,
+            card.number or entry.number,
+            prefer_holo=entry.printing in (Printing.HOLO, Printing.REVERSE_HOLO),
+        )
+    except Exception:
+        logger.warning("pokewallet lookup failed for %s", card.name, exc_info=True)
+        return None
+
+
+def _store_market(
+    session: Session,
+    variant_id: int,
+    market: MarketPricing | None,
+    reference_value_id: int | None,
+) -> None:
+    """Keep the market's asking price next to what actually sold.
+
+    Stored even when there is no reference value: a snapshot without a sold
+    counterpart still shows what the market claimed at that moment.
+    """
+    if market is None:
+        return
+    session.add(
+        MarketSnapshot(
+            variant_id=variant_id,
+            reference_value_id=reference_value_id,
+            cm_avg=market.cm_avg,
+            cm_low=market.cm_low,
+            cm_trend=market.cm_trend,
+            cm_avg7=market.cm_avg7,
+            cm_avg30=market.cm_avg30,
+            tcg_market_usd=market.tcg_market_usd,
+            tcg_low_usd=market.tcg_low_usd,
+            source="pokewallet",
+            source_card_id=market.card_id,
+            variant_label=market.variant,
+        )
+    )
+
+
 def evaluate_candidate(
     session: Session,
     candidate: Candidate,
@@ -104,6 +154,7 @@ def evaluate_candidate(
     settings: Settings | None = None,
     soldcomps: SoldCompsClient | None = None,
     tcgdex: TCGdexClient | None = None,
+    pokewallet: PokeWalletClient | None = None,
 ) -> EvaluationResult:
     settings = settings or get_settings()
 
@@ -115,6 +166,12 @@ def evaluate_candidate(
     soldcomps_active = bool(settings.soldcomps_api_key) and not guard.is_disabled(
         PROVIDER_SOLDCOMPS
     )
+
+    # Market data is free and independent of the SoldComps budget, so it is
+    # fetched even when the sold side is unavailable — that is exactly when a
+    # weak Stufe-4 value is better than nothing.
+    if pokewallet is None and settings.pokewallet_api_key:
+        pokewallet = PokeWalletClient()
 
     cascade = None
     if soldcomps_active:
@@ -150,12 +207,15 @@ def evaluate_candidate(
         session.add(link)
         session.flush()
 
+        market = _fetch_market(pokewallet, card, entry)
+
         if cascade is not None:
             before = soldcomps.request_count
             try:
-                result = cascade.compute(card, variant)
+                result = cascade.compute(card, variant, market=market)
             except Exception:
                 logger.exception("cascade failed for variant %s", variant.id)
+                _store_market(session, variant.id, market, None)
                 continue
             finally:
                 delta = soldcomps.request_count - before
@@ -171,6 +231,9 @@ def evaluate_candidate(
                 first_rv_id = first_rv_id or rv.id
                 total_value += Decimal(result.value) * link.quantity
                 have_value = True
+            _store_market(session, variant.id, market, rv.id if rv else None)
+        else:
+            _store_market(session, variant.id, market, None)
 
     # Update the candidate's estimate (never retract the alert; just annotate).
     estimated_profit: Decimal | None = None
@@ -202,6 +265,7 @@ def auto_value_candidate(
     settings: Settings | None = None,
     soldcomps: SoldCompsClient | None = None,
     tcgdex: TCGdexClient | None = None,
+    pokewallet: PokeWalletClient | None = None,
 ) -> EvaluationResult:
     """Two-gate automatic valuation (Block 2.2).
 
@@ -285,4 +349,5 @@ def auto_value_candidate(
         settings=settings,
         soldcomps=soldcomps,
         tcgdex=tcgdex,
+        pokewallet=pokewallet,
     )

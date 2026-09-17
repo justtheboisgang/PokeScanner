@@ -58,6 +58,12 @@ def report(settings: Settings | None = None) -> bool:
         "EBAY_CLIENT_SECRET",
         mask(s.ebay_client_secret),
     )
+    line(
+        OK if s.pokewallet_api_key else OFF,
+        "POKEWALLET_API_KEY",
+        mask(s.pokewallet_api_key) if s.pokewallet_api_key
+        else "(leer) — keine Marktpreise, keine Markt-vs-Verkauf-Analyse",
+    )
 
     print("\nQuellen, die daraus wirklich laufen:")
     # Eine Quelle zählt nur als laufend, wenn auch ihre Zugangsdaten da sind —
@@ -106,6 +112,12 @@ def report(settings: Settings | None = None) -> bool:
     else:
         line(MISS, "Automatisch (Einzelkarten)", "braucht SOLDCOMPS_API_KEY")
         line(MISS, "Manuell (Konvolute)", "Karten werden nur erfasst")
+    # Marktpreise haengen nicht an SoldComps: sie tragen Stufe 4 auch dann,
+    # wenn die Verkaufsseite gerade klemmt.
+    if s.pokewallet_api_key:
+        line(OK, "Marktpreise (Stufe 4)", "PokeWallet — auch ohne SoldComps nutzbar")
+    else:
+        line(OFF, "Marktpreise (Stufe 4)", "nur TCGdex (lückenhaft bei Vintage)")
 
     print("\nScan-Takt und Volumen:")
     polls = (s.poll_day_end_hour - s.poll_day_start_hour) * (

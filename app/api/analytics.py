@@ -16,6 +16,7 @@ from app.api.schemas import (
     CostsSummary,
     DiagnosticsReport,
     InventoryItem,
+    MarketComparison,
     ProviderCost,
     TermDiagnostic,
 )
@@ -23,7 +24,9 @@ from app.costs import PROVIDER_ANTHROPIC, PROVIDER_APIFY, PROVIDER_SOLDCOMPS, Co
 from app.models.api_cost import ApiCost
 from app.models.candidate import Candidate
 from app.models.decision import Decision
-from app.models.enums import Verdict
+from app.models.enums import ReferenceSource, Verdict
+from app.models.market_snapshot import MarketSnapshot
+from app.models.reference_value import ReferenceValue
 from app.models.purchase import Purchase, Sale
 
 router = APIRouter(prefix="/api", tags=["analytics"])
@@ -69,6 +72,76 @@ def inventory(db: Session = Depends(get_db)) -> list[InventoryItem]:
             )
         )
     return items
+
+
+def _market_comparison(db: Session) -> MarketComparison | None:
+    """Compare sold-based reference values against the market's asking price.
+
+    Only reference values built from REAL sold comps count (Stufe 1-3). A
+    Stufe-4 value already comes from market data, so comparing it to market data
+    would just measure itself.
+    """
+    rows = db.execute(
+        select(ReferenceValue.value, MarketSnapshot)
+        .join(MarketSnapshot, MarketSnapshot.reference_value_id == ReferenceValue.id)
+        .where(
+            ReferenceValue.source == ReferenceSource.SOLDCOMPS,
+            ReferenceValue.cascade_level <= 3,
+        )
+    ).all()
+
+    ratios: list[float] = []
+    sold_values: list[float] = []
+    market_values: list[float] = []
+    for sold, snap in rows:
+        market = (
+            snap.cm_avg7 or snap.cm_trend or snap.cm_avg or snap.cm_avg30
+        )
+        if sold is None or market is None or Decimal(market) <= 0:
+            continue
+        ratios.append(float(Decimal(sold) / Decimal(market)))
+        sold_values.append(float(sold))
+        market_values.append(float(market))
+
+    if not ratios:
+        return MarketComparison(
+            sample_size=0,
+            median_ratio=None,
+            mean_ratio=None,
+            median_sold_eur=None,
+            median_market_eur=None,
+            verdict="Noch keine Karte mit echtem Verkaufswert UND Marktpreis.",
+        )
+
+    from statistics import median
+
+    med = median(ratios)
+    if med < 0.75:
+        verdict = (
+            f"Echte Verkäufe liegen im Mittel bei {med:.0%} des Marktpreises — "
+            "Cardmarket-Preise sind hier deutlich zu hoch."
+        )
+    elif med < 0.95:
+        verdict = (
+            f"Echte Verkäufe liegen bei {med:.0%} des Marktpreises — "
+            "der Markt ist leicht überzeichnet."
+        )
+    elif med <= 1.1:
+        verdict = f"Verkäufe und Marktpreis decken sich weitgehend ({med:.0%})."
+    else:
+        verdict = (
+            f"Echte Verkäufe liegen bei {med:.0%} des Marktpreises — "
+            "der Markt hinkt nach oben hinterher."
+        )
+
+    return MarketComparison(
+        sample_size=len(ratios),
+        median_ratio=med,
+        mean_ratio=sum(ratios) / len(ratios),
+        median_sold_eur=median(sold_values),
+        median_market_eur=median(market_values),
+        verdict=verdict,
+    )
 
 
 @router.get("/calibration", response_model=CalibrationSummary)
@@ -147,6 +220,7 @@ def calibration(db: Session = Depends(get_db)) -> CalibrationSummary:
         avg_forecast_error_eur=_avg(errors),
         avg_abs_forecast_error_eur=_avg([abs(e) for e in errors]),
         per_cascade_level=level_rows,
+        market_comparison=_market_comparison(db),
     )
 
 

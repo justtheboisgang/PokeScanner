@@ -51,6 +51,56 @@ export default function Calibration() {
         />
       </div>
 
+      {d.market_comparison && (
+        <section className="mt-4 rounded-lg border border-slate-800 bg-slate-900 p-4">
+          <h2 className="mb-1 text-sm font-semibold uppercase tracking-wide text-slate-400">
+            Echte Verkäufe vs. Marktpreis
+          </h2>
+          <p className="mb-3 text-xs text-slate-500">
+            Was wirklich gezahlt wurde, geteilt durch das, was Cardmarket verlangt.
+            Unter 100 % heißt: der Marktpreis ist zu hoch — ein „Schnäppchen"
+            gegenüber dem Trendpreis ist dann keines.
+          </p>
+          {d.market_comparison.sample_size === 0 ? (
+            <p className="text-sm text-slate-500">{d.market_comparison.verdict}</p>
+          ) : (
+            <>
+              <div className="mb-3 flex flex-wrap items-baseline gap-x-6 gap-y-2">
+                <div>
+                  <div className="text-xs text-slate-500">Verhältnis (Median)</div>
+                  <div
+                    className={`text-2xl font-semibold ${
+                      d.market_comparison.median_ratio < 0.95
+                        ? "text-amber-300"
+                        : "text-emerald-300"
+                    }`}
+                  >
+                    {(d.market_comparison.median_ratio * 100).toFixed(0)} %
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs text-slate-500">Ø verkauft</div>
+                  <div className="text-lg">
+                    {num(d.market_comparison.median_sold_eur, 2)} €
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs text-slate-500">Ø Marktpreis</div>
+                  <div className="text-lg text-slate-400">
+                    {num(d.market_comparison.median_market_eur, 2)} €
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs text-slate-500">Stichprobe</div>
+                  <div className="text-lg">{d.market_comparison.sample_size}</div>
+                </div>
+              </div>
+              <p className="text-sm text-slate-300">{d.market_comparison.verdict}</p>
+            </>
+          )}
+        </section>
+      )}
+
       <section className="mt-4 rounded-lg border border-slate-800 bg-slate-900 p-4">
         <h2 className="mb-1 text-sm font-semibold uppercase tracking-wide text-slate-400">
           Prognosefehler je Kaskadenstufe

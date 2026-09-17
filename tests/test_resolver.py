@@ -572,3 +572,102 @@ def test_german_name_still_resolves_without_english_pass():
     assert resolved is not None
     assert resolved.language == Language.DE
     assert calls["en"] == 0  # kein unnoetiger zweiter Durchgang
+
+
+# --- "unbewertbar" vs. "nie versucht" --------------------------------------
+#
+# Beides sah im Feed identisch aus. Der Betreiber konnte nicht erkennen, ob die
+# Maschine geprueft und nichts gefunden hat oder die Karte nie angefasst wurde —
+# und hielt deshalb nie geprueffte Karten fuer wertlos. Jeder Ausgang der
+# Automatik haelt seitdem fest, DASS und WARUM.
+
+
+def test_unresolved_title_records_the_failing_gate(db):
+    """Der Grund kommt aus der Spur des Resolvers, nicht aus einer Pauschale."""
+    cand = _candidate(db, title="Pokemon Karten Glurak Holo Deutsch")  # keine Nummer
+    settings = get_settings().model_copy(update={"soldcomps_api_key": "sc_test"})
+
+    auto_value_candidate(
+        db,
+        cand,
+        resolver=SingleCardTitleResolver(_tcgdex(_one_card_handler([]))),
+        settings=settings,
+    )
+
+    assert cand.valuation_attempted_at is not None
+    assert "Titel nicht eindeutig" in cand.valuation_note
+    assert "Tor 1b" in cand.valuation_note  # fehlende Kartennummer
+
+
+def test_resolver_without_trace_support_still_gets_marked(db):
+    """Das Protokoll verlangt keine Spur — markiert wird trotzdem."""
+    cand = _candidate(db)
+    settings = get_settings().model_copy(update={"soldcomps_api_key": "sc_test"})
+
+    auto_value_candidate(db, cand, resolver=NullResolver(), settings=settings)
+
+    assert cand.valuation_attempted_at is not None
+    assert "nicht auf genau eine Karte" in cand.valuation_note
+
+
+def test_below_threshold_says_so_instead_of_staying_silent(db):
+    lst = Listing(
+        channel=Channel.EBAY_BROWSE,
+        external_id="cheap1",
+        title="Glurak Holo 4/102",
+        price=Decimal("4"),
+        currency="EUR",
+        seller_type=SellerType.PRIVATE,
+        images=[],
+    )
+    db.add(lst)
+    db.flush()
+    cand = Candidate(listing_id=lst.id, matched_search_term="glurak")
+    db.add(cand)
+    db.flush()
+    settings = get_settings().model_copy(
+        update={"soldcomps_api_key": "sc_test", "single_card_lookup_threshold_eur": 15}
+    )
+    resolved = ResolvedCard("base1-4", "Glurak", "4/102", Language.DE, Printing.HOLO)
+
+    result = auto_value_candidate(
+        db, cand, resolver=_StubResolver(resolved), settings=settings
+    )
+
+    assert "Nachschlagschwelle" in result.note
+    assert cand.valuation_attempted_at is not None
+    assert "Nachschlagschwelle" in cand.valuation_note
+
+
+def test_missing_key_is_recorded_as_the_reason(db):
+    cand = _candidate(db)
+    settings = get_settings().model_copy(update={"soldcomps_api_key": ""})
+    resolved = ResolvedCard("base1-4", "Glurak", "4/102", Language.DE, Printing.HOLO)
+
+    auto_value_candidate(
+        db, cand, resolver=_StubResolver(resolved), settings=settings
+    )
+
+    assert cand.valuation_attempted_at is not None
+    assert "SoldComps" in cand.valuation_note
+
+
+def test_successful_valuation_clears_a_stale_reason(db):
+    cand = _candidate(db, price="120")
+    cand.valuation_note = "Titel nicht eindeutig — alter Stand"
+    db.flush()
+    settings = get_settings().model_copy(update={"soldcomps_api_key": "sc_test"})
+    resolved = ResolvedCard("base1-4", "Glurak", "4/102", Language.DE, Printing.HOLO)
+
+    auto_value_candidate(
+        db,
+        cand,
+        resolver=_StubResolver(resolved),
+        settings=settings,
+        soldcomps=_soldcomps(),
+        tcgdex=_tcgdex(_one_card_handler({})),
+    )
+
+    assert cand.reference_value_id is not None
+    assert cand.valuation_attempted_at is not None
+    assert cand.valuation_note is None

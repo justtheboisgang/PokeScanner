@@ -32,6 +32,13 @@ class Candidate(Base):
 
     # NULL when unbewertbar (Stufe 5).
     estimated_profit: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    # Wann zuletzt eine Bewertung VERSUCHT wurde, und woran sie ggf. scheiterte.
+    # Ohne das bedeutet "unbewertbar" zweierlei — geprueft und nichts gefunden,
+    # oder nie angefasst — und der Betreiber kann beides nicht unterscheiden.
+    valuation_attempted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    valuation_note: Mapped[str | None] = mapped_column(String(200))
     alert_reason: Mapped[str | None] = mapped_column(Text)
     # The taxonomy term that triggered this candidate — enables data-driven
     # rotation of the active query subset (§4.4 calibration).

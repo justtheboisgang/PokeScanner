@@ -9,9 +9,11 @@ but left unbewertbar until the key is set.
 
 from __future__ import annotations
 
+import inspect
 import logging
 from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from decimal import Decimal
 
 from sqlalchemy import func, select
@@ -38,6 +40,20 @@ logger = logging.getLogger(__name__)
 # edge we are hunting ("weiss nicht was es wert ist"), so the lookup threshold
 # must NEVER gate it there — only where the seller prices at market.
 _PRICED_AT_MARKET = {Channel.EBAY, Channel.EBAY_BROWSE}
+
+# Laenge der Spalte candidate.valuation_note.
+_NOTE_MAX = 200
+
+
+def _mark_attempt(candidate: Candidate, note: str | None) -> None:
+    """Festhalten, DASS bewertet wurde — und woran es ggf. lag.
+
+    Ohne das heisst "unbewertbar" im Feed zweierlei: geprueft und nichts
+    gefunden, oder nie angefasst. Der Betreiber muss das unterscheiden koennen,
+    sonst haelt er eine nie versuchte Karte fuer wertlos.
+    """
+    candidate.valuation_attempted_at = datetime.now(timezone.utc)
+    candidate.valuation_note = note[:_NOTE_MAX] if note else None
 
 
 @dataclass
@@ -251,12 +267,53 @@ def evaluate_candidate(
     elif not soldcomps_active:
         note = "SoldComps-Tagesbudget erreicht — heute keine Bewertung möglich."
 
+    # Der Versuch ist gelaufen — ob mit Wert oder ohne. Genau diese Notiz
+    # unterscheidet spaeter "geprueft, nichts gefunden" von "nie angefasst".
+    if have_value:
+        _mark_attempt(candidate, None)
+    elif not entries:
+        _mark_attempt(candidate, "Keine Karten angegeben — nichts zu bewerten.")
+    else:
+        _mark_attempt(
+            candidate,
+            note
+            or "Geprüft: keine belastbaren Verkaufsdaten gefunden (Kaskade Stufe 5).",
+        )
+
     return EvaluationResult(
         total_value_eur=(total_value if have_value else None),
         estimated_profit_eur=estimated_profit,
         soldcomps_active=soldcomps_active,
         note=note,
     )
+
+
+def note_unresolvable(candidate: Candidate, trace: list[str]) -> None:
+    """Festhalten, warum ein Titel nicht auf genau eine Karte auflösbar war.
+
+    Das kostet nichts (nur TCGdex), deshalb darf auch der Trockenlauf das
+    schreiben: er erklärt damit den halben Feed, ohne einen Cent auszugeben.
+    """
+    reason = trace[-1] if trace else "Titel nicht auf genau eine Karte auflösbar."
+    _mark_attempt(candidate, f"Titel nicht eindeutig — {reason}")
+
+
+def _resolve(
+    resolver: TitleResolver, title: str, description: str | None, trace: list[str]
+):
+    """Den Resolver mit Spur aufrufen, wenn er eine annimmt.
+
+    Das Protokoll verlangt nur (title, description); der echte Resolver bietet
+    zusaetzlich ``trace``. Statt darauf zu bauen wird die Signatur gefragt —
+    ein TypeError-Fallback wuerde echte Fehler im Resolver verschlucken.
+    """
+    try:
+        takes_trace = "trace" in inspect.signature(resolver.resolve).parameters
+    except (TypeError, ValueError):  # z.B. C-implementierte Callables
+        takes_trace = False
+    if takes_trace:
+        return resolver.resolve(title, description, trace=trace)
+    return resolver.resolve(title, description)
 
 
 def auto_value_candidate(
@@ -301,11 +358,15 @@ def auto_value_candidate(
         return inactive
     listing = candidate.listing
     if listing is None:
+        _mark_attempt(candidate, "Kein Listing am Kandidaten — nichts zu bewerten.")
         return inactive
 
-    # Gate 1: unambiguous single card, or nothing.
-    resolved = resolver.resolve(listing.title, listing.description)
+    # Gate 1: unambiguous single card, or nothing. Die Spur des Resolvers ist
+    # der Grund: sie sagt, an welchem Tor der Titel gescheitert ist.
+    trace: list[str] = []
+    resolved = _resolve(resolver, listing.title, listing.description, trace)
     if resolved is None:
+        note_unresolvable(candidate, trace)
         return inactive
 
     # Gate 1c: a lookup costs real money, so skip listings too cheap to yield a
@@ -319,12 +380,9 @@ def auto_value_candidate(
         and Decimal(listing.price) < threshold
         and threshold > 0
     ):
-        return EvaluationResult(
-            None,
-            None,
-            False,
-            f"Unter der Nachschlagschwelle von {threshold} EUR — nicht bewertet.",
-        )
+        below = f"Unter der Nachschlagschwelle von {threshold} EUR — nicht bewertet."
+        _mark_attempt(candidate, below)
+        return EvaluationResult(None, None, False, below)
 
     # Gate 2: only run (and store) when SoldComps can actually value it today.
     @contextmanager
@@ -333,12 +391,9 @@ def auto_value_candidate(
 
     guard = CostGuard(session_factory=_bind, settings=settings)
     if not settings.soldcomps_api_key or guard.is_disabled(PROVIDER_SOLDCOMPS):
-        return EvaluationResult(
-            None,
-            None,
-            False,
-            "Titel eindeutig, aber SoldComps nicht verfügbar (kein Key/Budget).",
-        )
+        blocked = "Titel eindeutig, aber SoldComps nicht verfügbar (kein Key/Budget)."
+        _mark_attempt(candidate, blocked)
+        return EvaluationResult(None, None, False, blocked)
 
     entry = CardEntry(
         tcgdex_id=resolved.tcgdex_id,

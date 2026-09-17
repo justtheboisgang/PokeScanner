@@ -261,3 +261,34 @@ def test_evaluate_endpoint_without_key(client, db):
     assert len(detail["cards"]) == 1
     assert detail["cards"][0]["name"] == "Glurak"
     assert detail["cards"][0]["reference_value"] is None
+
+
+def test_manual_evaluation_records_that_it_ran(db):
+    """Auch die Handbewertung haelt fest, dass geprueft wurde.
+
+    Ohne Schluessel werden die Karten erfasst, aber nicht bewertet — der Grund
+    steht danach am Kandidaten, statt dass der Feed stumm "unbewertbar" sagt.
+    """
+    cand = _candidate(db)
+    settings = get_settings().model_copy(update={"soldcomps_api_key": ""})
+
+    result = evaluate_candidate(
+        db,
+        cand,
+        [
+            CardEntry(
+                tcgdex_id=None,
+                name="Glurak",
+                set="Base",
+                number="4/102",
+                language=Language.DE,
+                condition=Condition.PLAYED,
+                printing=Printing.HOLO,
+            )
+        ],
+        settings=settings,
+    )
+
+    assert result.total_value_eur is None
+    assert cand.valuation_attempted_at is not None
+    assert "SoldComps" in cand.valuation_note

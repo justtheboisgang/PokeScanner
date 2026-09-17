@@ -30,7 +30,7 @@ from app.db import session_scope
 from app.models.candidate import Candidate
 from app.models.enums import Language
 from app.models.market_snapshot import MarketSnapshot
-from app.pricing.evaluate import auto_value_candidate
+from app.pricing.evaluate import auto_value_candidate, note_unresolvable
 from app.pricing.resolver import SingleCardTitleResolver
 
 logger = logging.getLogger(__name__)
@@ -75,12 +75,20 @@ def run(limit: int = 5, dry_run: bool = False) -> None:
                 price = f"{listing.price} {listing.currency}" if listing.price else "—"
                 print(f"\n  #{cand.id}  {listing.title}")
                 print(f"    Preis: {price}")
-                resolved = resolver.resolve(listing.title, listing.description)
-                print(
-                    f"    {'aufgelöst: ' + resolved.name + ' ' + (resolved.number or '')}"
-                    if resolved
-                    else "    nicht auflösbar -> unbewertbar"
+                trace: list[str] = []
+                resolved = resolver.resolve(
+                    listing.title, listing.description, trace=trace
                 )
+                if resolved:
+                    print(
+                        f"    aufgelöst: {resolved.name} {resolved.number or ''}"
+                    )
+                else:
+                    # Der Grund wird MITGESCHRIEBEN, obwohl das ein Trockenlauf
+                    # ist: Auflösen kostet nichts, und danach erklärt der Feed
+                    # bei jeder Karte selbst, warum sie unbewertbar ist.
+                    note_unresolvable(cand, trace)
+                    print(f"    nicht auflösbar -> {trace[-1] if trace else 'unbewertbar'}")
                 skipped += 1
             print(f"\n=== {valued} bewertet, {skipped} nicht bewertet ===\n")
             return
@@ -94,7 +102,11 @@ def run(limit: int = 5, dry_run: bool = False) -> None:
             listing = cand.listing
             if listing is None:
                 continue
-            if resolver.resolve(listing.title, listing.description) is None:
+            trace: list[str] = []
+            if resolver.resolve(listing.title, listing.description, trace=trace) is None:
+                # Auch hier den Grund festhalten — sonst bleibt der Kandidat im
+                # Feed stumm "unbewertbar", obwohl wir ihn gerade geprüft haben.
+                note_unresolvable(cand, trace)
                 continue
             candidates.append(cand)
 

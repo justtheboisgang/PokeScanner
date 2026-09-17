@@ -176,7 +176,10 @@ def test_diagnostics_per_term_and_time_to_alert(client, db):
     assert d["time_to_alert_median_seconds"] == 200.0
     # nothing resolved yet (no reference values)
     assert d["resolver_resolved"] == 0
-    assert d["resolver_attempted"] == 2
+    # Und auch nichts VERSUCHT: die Quote zaehlt nur echte Versuche, sonst
+    # sieht ein unangetasteter Feed nach 0% Erfolg aus statt nach "nie gelaufen".
+    assert d["resolver_attempted"] == 0
+    assert d["never_attempted"] == 2
 
 
 def test_costs_no_buys_gives_null_cost_per_fund(client, db):
@@ -185,3 +188,39 @@ def test_costs_no_buys_gives_null_cost_per_fund(client, db):
     d = client.get("/api/costs").json()
     assert d["buy_count"] == 0
     assert d["cost_per_fund_eur"] is None
+
+
+def test_diagnostics_groups_the_reasons_for_unbewertbar(client, db):
+    """Die Frage "wieso ist alles unbewertbar?" braucht eine Antwort in Zahlen."""
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc)
+    rows = [
+        "Titel nicht eindeutig — Tor 1b: keine Kartennummer wie 4/102 im Titel -> unbewertbar",
+        "Titel nicht eindeutig — Tor 1b: keine Kartennummer wie 4/102 im Titel -> unbewertbar",
+        "Titel nicht eindeutig — Tor 1a: als Konvolut erkannt (Bundle-Stichwort) -> unbewertbar",
+        "Unter der Nachschlagschwelle von 15 EUR — nicht bewertet.",
+    ]
+    for i, note in enumerate(rows):
+        lst = _listing(db, f"reason{i}")
+        db.add(
+            Candidate(
+                listing_id=lst.id,
+                valuation_attempted_at=now,
+                valuation_note=note,
+            )
+        )
+    # Einer wurde nie angefasst — der darf in der Grund-Tabelle NICHT auftauchen.
+    lst = _listing(db, "untouched")
+    db.add(Candidate(listing_id=lst.id))
+    db.commit()
+
+    d = client.get("/api/diagnostics").json()
+    assert d["never_attempted"] == 1
+    assert d["resolver_attempted"] == 4
+    counts = {r["label"]: r["count"] for r in d["unbewertbar_reasons"]}
+    assert counts["keine Kartennummer im Titel (z.B. 4/102)"] == 2
+    assert counts["Titel sieht nach Konvolut/Sammlung aus"] == 1
+    assert counts["unter der Nachschlagschwelle — bewusst nicht bewertet"] == 1
+    # Haeufigster Grund zuerst — sonst muss man die Tabelle lesen statt sehen.
+    assert d["unbewertbar_reasons"][0]["count"] == 2

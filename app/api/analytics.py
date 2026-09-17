@@ -19,6 +19,7 @@ from app.api.schemas import (
     MarketComparison,
     ProviderCost,
     TermDiagnostic,
+    UnbewertbarReason,
 )
 from app.costs import PROVIDER_ANTHROPIC, PROVIDER_APIFY, PROVIDER_SOLDCOMPS, CostGuard
 from app.models.api_cost import ApiCost
@@ -236,6 +237,32 @@ def _percentile(values: list[int], p: float) -> float | None:
     return float(s[lo] + (s[hi] - s[lo]) * (k - lo))
 
 
+# Die Notizen sind Freitext (sie sollen am Einzelfall lesbar sein). Fuer die
+# Uebersicht werden sie auf wenige Koerbe abgebildet — sonst zaehlt man 300 mal
+# "1". Die Reihenfolge ist die Reihenfolge der Tore: der erste Treffer gewinnt.
+_REASON_BUCKETS: tuple[tuple[str, str], ...] = (
+    ("Konvolut", "Titel sieht nach Konvolut/Sammlung aus"),
+    ("Neudruck", "Neudruck/Jubiläum — Wert wäre erfunden"),
+    ("Tor 1b", "keine Kartennummer im Titel (z.B. 4/102)"),
+    ("mehrdeutig", "Nummer passt auf mehrere Karten"),
+    ("keine gefunden", "Karte bei TCGdex nicht gefunden"),
+    ("Namenswort", "kein brauchbarer Kartenname im Titel"),
+    ("Nachschlagschwelle", "unter der Nachschlagschwelle — bewusst nicht bewertet"),
+    ("SoldComps", "SoldComps nicht verfügbar (Key/Budget)"),
+    ("Verkaufsdaten", "geprüft, aber keine belastbaren Verkaufsdaten"),
+    ("Kein Listing", "kein Listing am Kandidaten"),
+)
+
+
+def _reason_bucket(note: str | None) -> str:
+    if not note:
+        return "Grund nicht festgehalten (vor dieser Auswertung bewertet)"
+    for needle, label in _REASON_BUCKETS:
+        if needle.lower() in note.lower():
+            return label
+    return "sonstiges"
+
+
 @router.get("/diagnostics", response_model=DiagnosticsReport)
 def diagnostics(db: Session = Depends(get_db)) -> DiagnosticsReport:
     """Measurement report (§1.5): finds per term, verdict split, time-to-alert."""
@@ -247,9 +274,22 @@ def diagnostics(db: Session = Depends(get_db)) -> DiagnosticsReport:
     per_term: dict[str, dict[str, int]] = {}
     times: list[int] = []
     resolved = 0
+    attempted = 0
+    never = 0
+    reasons: dict[str, int] = {}
     for c in candidates:
         if c.reference_value_id is not None:
             resolved += 1
+            attempted += 1
+        elif c.valuation_attempted_at is not None:
+            # Geprueft und nichts gefunden — mit Grund.
+            attempted += 1
+            label = _reason_bucket(c.valuation_note)
+            reasons[label] = reasons.get(label, 0) + 1
+        else:
+            # Nie angefasst. Genau das war vorher von "unbewertbar" nicht zu
+            # unterscheiden, und darum wirkte der ganze Feed wertlos.
+            never += 1
         if c.time_to_alert_seconds is not None:
             times.append(c.time_to_alert_seconds)
         terms = list(c.triggering_search_terms or [])
@@ -285,8 +325,17 @@ def diagnostics(db: Session = Depends(get_db)) -> DiagnosticsReport:
         time_to_alert_count=len(times),
         time_to_alert_median_seconds=(float(median(times)) if times else None),
         time_to_alert_p90_seconds=_percentile(times, 0.9),
-        resolver_attempted=total,
+        # Nicht mehr "alle Kandidaten": nur die, an denen die Bewertung
+        # wirklich gelaufen ist. Alles andere waere eine geschmeichelte Quote.
+        resolver_attempted=attempted,
         resolver_resolved=resolved,
+        never_attempted=never,
+        unbewertbar_reasons=[
+            UnbewertbarReason(label=label, count=count)
+            for label, count in sorted(
+                reasons.items(), key=lambda kv: kv[1], reverse=True
+            )
+        ],
     )
 
 

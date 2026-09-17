@@ -18,9 +18,24 @@ function VerdictBadge({ verdict }) {
 
 function CascadeBadge({ item }) {
   if (item.is_unbewertbar) {
+    // Zwei voellig verschiedene Zustaende, die vorher gleich aussahen:
+    // geprueft und nichts gefunden -- oder nie angefasst.
+    if (!item.valuation_attempted_at) {
+      return (
+        <span
+          className="rounded bg-slate-800 px-1.5 py-0.5 text-[11px] text-slate-400 ring-1 ring-slate-700"
+          title="Die Automatik hat diesen Kandidaten noch nicht angefasst."
+        >
+          noch nicht bewertet
+        </span>
+      );
+    }
     return (
-      <span className="rounded bg-slate-700/60 px-1.5 py-0.5 text-[11px] text-slate-300">
-        unbewertbar
+      <span
+        className="rounded bg-slate-700/60 px-1.5 py-0.5 text-[11px] text-slate-300"
+        title={item.valuation_note || "geprüft, kein Referenzwert ermittelbar"}
+      >
+        unbewertbar{item.valuation_note ? " ⓘ" : ""}
       </span>
     );
   }
@@ -68,6 +83,11 @@ function Card({ item }) {
             </span>
           )}
         </div>
+        {item.is_unbewertbar && item.valuation_note && (
+          <div className="line-clamp-2 text-[11px] text-slate-500">
+            {item.valuation_note}
+          </div>
+        )}
         <div className="truncate text-xs text-slate-500">
           {item.location || "—"} · {item.matched_search_term || "—"}
         </div>

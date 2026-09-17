@@ -20,6 +20,7 @@ export default function Diagnostics() {
   if (error) return <p className="text-rose-400">Fehler: {error}</p>;
   if (!d) return <p className="text-slate-400">lädt…</p>;
 
+  const reasons = d.unbewertbar_reasons || [];
   const resolvePct =
     d.resolver_attempted > 0
       ? ((d.resolver_resolved / d.resolver_attempted) * 100).toFixed(0)
@@ -50,10 +51,49 @@ export default function Diagnostics() {
           </div>
         </div>
         <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
-          <div className="text-xs uppercase tracking-wide text-slate-500">Suchbegriffe aktiv</div>
-          <div className="mt-1 text-2xl font-semibold">{d.per_term.length}</div>
+          <div className="text-xs uppercase tracking-wide text-slate-500">Nie bewertet</div>
+          <div className="mt-1 text-2xl font-semibold">{d.never_attempted}</div>
+          <div className="mt-1 text-xs text-slate-500">
+            {d.per_term.length} Suchbegriffe aktiv
+          </div>
         </div>
       </div>
+
+      <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-400">
+        Warum blieb es unbewertbar?
+      </h2>
+      <div className="mb-3 overflow-x-auto rounded-lg border border-slate-800">
+        <table className="w-full text-left text-sm">
+          <thead className="bg-slate-800/60 text-xs uppercase text-slate-400">
+            <tr>
+              <th className="px-3 py-2">Grund</th>
+              <th className="px-3 py-2">Kandidaten</th>
+            </tr>
+          </thead>
+          <tbody className="tnum">
+            {reasons.length === 0 ? (
+              <tr>
+                <td className="px-3 py-3 text-slate-500" colSpan={2}>
+                  Noch kein Bewertungsversuch ausgewertet.
+                </td>
+              </tr>
+            ) : (
+              reasons.map((r) => (
+                <tr key={r.label} className="border-t border-slate-800">
+                  <td className="px-3 py-2 text-slate-300">{r.label}</td>
+                  <td className="px-3 py-2 font-medium">{r.count}</td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+      <p className="mb-6 text-xs text-slate-500">
+        Diese Tabelle zählt nur <span className="text-slate-400">geprüfte</span>{" "}
+        Kandidaten. Die {d.never_attempted} „nie bewertet"
+        sind kein Misserfolg: die Automatik läuft bei neuen Listings, älteres
+        zieht <code>revalue</code> nach.
+      </p>
 
       <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-400">
         Pro Suchbegriff — Funde &amp; Verdict-Verteilung

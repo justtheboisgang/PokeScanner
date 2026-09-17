@@ -99,6 +99,10 @@ class CandidateFeedItem(BaseModel):
     sample_size: int | None
     is_weak: bool
     is_unbewertbar: bool
+    # Getrennt ausgewiesen: ohne Versuchszeitpunkt heisst "unbewertbar" nur
+    # "noch nicht bewertet" — ein Unterschied, den der Betreiber braucht.
+    valuation_attempted_at: datetime | None = None
+    valuation_note: str | None = None
     alert_sent_at: datetime | None
     created_at: datetime
     verdict: Verdict | None
@@ -134,6 +138,8 @@ class CandidateDetail(BaseModel):
     matched_search_term: str | None
     alert_sent_at: datetime | None
     reference_value: ReferenceValueOut | None
+    valuation_attempted_at: datetime | None = None
+    valuation_note: str | None = None
     decision: DecisionOut | None
     enrichment: EnrichmentOut | None
     cards: list[CandidateCardOut] = []
@@ -311,6 +317,14 @@ class TermDiagnostic(BaseModel):
     undecided: int
 
 
+class UnbewertbarReason(BaseModel):
+    """Warum Kandidaten unbewertbar blieben, gebuendelt — die Frage, die der
+    Betreiber tatsaechlich stellt ("wieso ist alles unbewertbar?")."""
+
+    label: str
+    count: int
+
+
 class DiagnosticsReport(BaseModel):
     total_candidates: int
     per_term: list[TermDiagnostic]
@@ -320,6 +334,10 @@ class DiagnosticsReport(BaseModel):
     # Title resolver (wired in Block 2): how often it ran vs. actually resolved.
     resolver_attempted: int
     resolver_resolved: int
+    # Kandidaten, die die Automatik nie angefasst hat (z.B. aelter als die
+    # Automatik, oder zur Handarbeit vorgemerkt) — kein Misserfolg.
+    never_attempted: int = 0
+    unbewertbar_reasons: list[UnbewertbarReason] = []
 
 
 class JournalItem(BaseModel):

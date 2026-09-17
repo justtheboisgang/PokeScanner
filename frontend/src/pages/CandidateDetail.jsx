@@ -311,13 +311,36 @@ function PurchaseSection({ candidateId, listing, purchase, onSaved }) {
   );
 }
 
-function CompsTable({ rv }) {
+function CompsTable({ rv, attemptedAt, note }) {
   if (!rv) {
+    // "unbewertbar" allein sagt nicht, ob je gesucht wurde. Beides getrennt
+    // benennen, sonst haelt man eine nie gepruefte Karte fuer wertlos.
+    if (!attemptedAt) {
+      return (
+        <div className="text-slate-400">
+          <p>
+            <span className="text-slate-300">Noch nicht bewertet</span> — die
+            Automatik hat diesen Kandidaten nicht angefasst.
+          </p>
+          <p className="mt-1 text-xs text-slate-500">
+            Die automatische Bewertung läuft nur bei neuen Listings; ältere
+            Kandidaten bewertet <code>revalue</code> nach. Unten selbst
+            identifizieren geht jederzeit.
+          </p>
+        </div>
+      );
+    }
     return (
-      <p className="text-slate-400">
-        Kein Referenzwert — <span className="text-slate-300">unbewertbar</span>,
-        bitte selbst prüfen.
-      </p>
+      <div className="text-slate-400">
+        <p>
+          Kein Referenzwert — <span className="text-slate-300">geprüft am{" "}
+          {formatDate(attemptedAt)}, unbewertbar</span>.
+        </p>
+        {note && <p className="mt-1 text-xs text-slate-500">Grund: {note}</p>}
+        <p className="mt-1 text-xs text-slate-500">
+          Bitte selbst prüfen und unten identifizieren.
+        </p>
+      </div>
     );
   }
   return (
@@ -547,7 +570,11 @@ export default function CandidateDetail() {
             <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-400">
               Referenzwert & Comps
             </h2>
-            <CompsTable rv={data.reference_value} />
+            <CompsTable
+              rv={data.reference_value}
+              attemptedAt={data.valuation_attempted_at}
+              note={data.valuation_note}
+            />
           </section>
 
           <EvaluateSection
@@ -623,7 +650,9 @@ export default function CandidateDetail() {
               <span className="text-slate-200">
                 {data.estimated_profit != null
                   ? formatEuro(data.estimated_profit)
-                  : "unbewertbar"}
+                  : data.valuation_attempted_at
+                    ? "unbewertbar"
+                    : "noch nicht bewertet"}
               </span>
             </div>
           </section>

@@ -38,22 +38,32 @@ def _candidate(db, title, price="50", ext="rv1"):
     return cand
 
 
-def test_dry_run_costs_nothing_and_touches_nothing(patched_scope, db, monkeypatch,
-                                                   capsys):
-    """Der Trockenlauf darf weder bewerten noch Geld ausgeben."""
-    _candidate(db, "Glurak Holo 4/102 Base Set Deutsch")
+def test_dry_run_costs_nothing_but_records_the_reason(patched_scope, db, monkeypatch,
+                                                      capsys):
+    """Der Trockenlauf gibt kein Geld aus — haelt den Grund aber fest.
+
+    Aufloesen kostet nichts, also darf der Grund in die Datenbank: danach
+    erklaert der Feed bei jeder Karte selbst, warum sie unbewertbar ist.
+    """
+    cand = _candidate(db, "Glurak Holo 4/102 Base Set Deutsch")
 
     def _boom(*a, **kw):  # pragma: no cover
         raise AssertionError("darf im Trockenlauf nicht aufgerufen werden")
 
     monkeypatch.setattr("app.revalue.auto_value_candidate", _boom)
     monkeypatch.setattr(
-        "app.revalue.SingleCardTitleResolver.resolve", lambda self, t, d: None
+        "app.revalue.SingleCardTitleResolver.resolve",
+        lambda self, t, d, trace=None: None,
     )
     run(limit=5, dry_run=True)
     out = capsys.readouterr().out
     assert "Trockenlauf" in out
     assert "nicht auflösbar" in out
+    db.expire_all()
+    cand = db.get(Candidate, cand.id)
+    assert cand.reference_value_id is None  # bewertet wurde nichts
+    assert cand.valuation_attempted_at is not None
+    assert "Titel nicht eindeutig" in cand.valuation_note
 
 
 def test_reports_when_nothing_is_left_to_value(patched_scope, db, capsys):
@@ -98,8 +108,8 @@ def test_only_untouched_candidates_are_picked_up(patched_scope, db, monkeypatch,
 
     monkeypatch.setattr(
         "app.revalue.SingleCardTitleResolver.resolve",
-        lambda self, t, d: ResolvedCard("base1-4", "Glurak", "4/102",
-                                        Language.DE, Printing.NORMAL),
+        lambda self, t, d, trace=None: ResolvedCard("base1-4", "Glurak", "4/102",
+                                                    Language.DE, Printing.NORMAL),
     )
     monkeypatch.setattr("app.revalue.auto_value_candidate", _fake)
     _candidate(db, "Noch offen 7/102", ext="open")
@@ -126,7 +136,7 @@ def test_limit_counts_real_valuations_not_attempts(patched_scope, db, monkeypatc
     for i, title in enumerate(["Evoli 51/64", "Rattikarl 40/102"]):
         _candidate(db, title, ext=f"yes{i}")
 
-    def _resolve(self, title, description):
+    def _resolve(self, title, description, trace=None):
         if "/" not in title:
             return None
         return ResolvedCard("base1-4", "X", "4/102", Language.DE, Printing.NORMAL)
@@ -149,7 +159,8 @@ def test_says_so_when_nothing_in_the_pool_resolves(patched_scope, db, monkeypatc
                                                   capsys):
     _candidate(db, "Konvolut ohne Nummer", ext="none1")
     monkeypatch.setattr(
-        "app.revalue.SingleCardTitleResolver.resolve", lambda self, t, d: None
+        "app.revalue.SingleCardTitleResolver.resolve",
+        lambda self, t, d, trace=None: None,
     )
     monkeypatch.setattr(
         "app.revalue.auto_value_candidate",

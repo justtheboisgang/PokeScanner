@@ -9,19 +9,32 @@
 #
 # Startliste (~60). Bitte anpassen/erweitern, sobald du siehst, was Flow bringt.
 #
-# `active`: die kuratierte Teilmenge (~8), die pro Poll tatsächlich bei Apify
-# abgefragt wird (§4.4, Kostenkontrolle). Breit gewählt, um über Breite viel
-# abzudecken. Nach ~2 Wochen datenbasiert rotieren (Funde je matched_search_term).
+# `active`: die kuratierte Teilmenge, die pro Poll tatsächlich bei Apify
+# abgefragt wird (§4.4, Kostenkontrolle) — JEDER Begriff kostet einen Actor-Run
+# pro Poll. Zwei Schienen: Konvolute (manuell zu bewerten) und Einzelkarten
+# (automatisch bewertbar). Nach ~2 Wochen datenbasiert rotieren — die Diagnose
+# zeigt Funde je matched_search_term, Nieten fliegen raus und sparen sofort.
 
 active:
+  # --- Schiene 1: Konvolute/Sammlungen ---------------------------------------
+  # Der Werthebel (§7): Leute, die nicht wissen, was sie haben. Diese Titel
+  # nennen den Inhalt NICHT, also sind sie automatisch nicht bewertbar — hier
+  # tippst du die Karten über "Bewerten" selbst ein. Bewusst breit gehalten.
   - "alte pokemon karten"
   - "pokemon sammlung"
   - "pokemon karten konvolut"
   - "pokemon karten dachboden"
   - "pokemon karten nachlass"
-  - "pokemon karten kindheit"
-  - "pokemon karten sammlung groß"
+
+  # --- Schiene 2: Einzelkarten ------------------------------------------------
+  # Titel mit Kartennummer ("Glurak Holo 4/102") löst der Resolver (Block 2.2)
+  # eindeutig auf und bewertet SOFORT automatisch — sobald SOLDCOMPS_API_KEY
+  # gesetzt ist. Ohne Key werden sie nur erfasst, nicht bewertet.
+  - "glurak holo"
+  - "turtok holo"
+  - "bisaflor holo"
   - "pokemon karten base set"
+  - "pokemon karte 1. edition"
 
 positive:
   # Dachboden / Keller / Nachlass
@@ -85,6 +98,15 @@ positive:
   - "pokemon karten e-serie"
   - "pokemon karten crystal"
   - "pokemon karten first edition deutsch"
+
+  # Einzelkarten mit Nummer im Titel (Schiene 2, automatisch bewertbar)
+  - "glurak holo"
+  - "turtok holo"
+  - "bisaflor holo"
+  - "mewtu holo"
+  - "simsala holo"
+  - "pokemon karte 1. edition"
+  - "pokemon holo karte alt"
 
   # Englischsprachige Duplikate (Kartensprache egal, Markt DE)
   - "old pokemon cards collection"

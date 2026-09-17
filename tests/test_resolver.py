@@ -448,3 +448,65 @@ def test_threshold_never_blocks_kleinanzeigen(db):
     result = _auto(db, cand)
     assert result.soldcomps_active is True
     assert cand.reference_value_id is not None
+
+
+# --- Sperre schuetzt Handarbeit, nicht eigene Fehlversuche -----------------
+
+
+def _card_row(db, cand, source):
+    from app.models.card import Card, Variant
+    from app.models.enums import Condition
+
+    card = Card(name="Alt", tcgdex_id=f"x-{source}-{cand.id}")
+    db.add(card)
+    db.flush()
+    variant = Variant(card_id=card.id, language=Language.DE,
+                      condition=Condition.PLAYED, printing=Printing.NORMAL)
+    db.add(variant)
+    db.flush()
+    db.add(CandidateCard(candidate_id=cand.id, variant_id=variant.id,
+                         quantity=1, source=source))
+    db.flush()
+    return variant
+
+
+def _auto_resolved(db, cand):
+    resolved = ResolvedCard("base1-4", "Glurak", "4/102", Language.DE,
+                            Printing.NORMAL)
+    return auto_value_candidate(
+        db, cand, resolver=_StubResolver(resolved),
+        settings=get_settings().model_copy(
+            update={"soldcomps_api_key": "sc_test"}
+        ),
+        soldcomps=_soldcomps(), tcgdex=_tcgdex(_one_card_handler({})),
+    )
+
+
+def test_manual_identification_is_never_overwritten(db):
+    cand = _candidate(db, price="120")
+    variant = _card_row(db, cand, "manual")
+    result = _auto_resolved(db, cand)
+    assert result.soldcomps_active is False
+    rows = db.scalars(
+        select(CandidateCard).where(CandidateCard.candidate_id == cand.id)
+    ).all()
+    assert len(rows) == 1
+    assert rows[0].variant_id == variant.id
+
+
+def test_failed_auto_attempt_is_retried(db):
+    """Ein abgebrochener Versuch darf die Karte nicht dauerhaft blockieren."""
+    cand = _candidate(db, price="120")
+    _card_row(db, cand, "auto")
+    result = _auto_resolved(db, cand)
+    assert result.soldcomps_active is True
+    assert cand.reference_value_id is not None
+
+
+def test_auto_valuation_marks_its_cards_as_auto(db):
+    cand = _candidate(db, price="120")
+    _auto_resolved(db, cand)
+    rows = db.scalars(
+        select(CandidateCard).where(CandidateCard.candidate_id == cand.id)
+    ).all()
+    assert [r.source for r in rows] == ["auto"]

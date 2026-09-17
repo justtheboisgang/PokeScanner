@@ -88,12 +88,17 @@ class TCGdexClient:
         self._client.close()
 
     def search_cards(
-        self, query: str, lang: str | None = None, *, limit: int = 15
+        self, query: str, lang: str | None = None, *, limit: int = 100
     ) -> list[dict]:
-        """Search cards by name for autocomplete. Returns brief card dicts.
+        """Search cards by name. Returns brief card dicts.
 
         Uses TCGdex filtering (`?name=like:<q>`); falls back to an empty list on
         error. Each item has at least `id` and `name` (and usually `image`).
+
+        The limit is deliberately generous: a popular Pokemon appears in dozens
+        of sets, and a short list silently cuts off the very card being looked
+        for. "Bisaflor 15/102" failed exactly that way — Base Set was not among
+        the first 15 results, so the number never matched anything.
         """
         lang = lang or self.primary_lang
         query = query.strip()

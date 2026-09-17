@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, func
+from sqlalchemy import DateTime, ForeignKey, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -28,6 +28,11 @@ class CandidateCard(Base):
         ForeignKey("reference_value.id", ondelete="SET NULL")
     )
     quantity: Mapped[int] = mapped_column(Integer, default=1)
+    # "manual" = vom Operator eingetragen, "auto" = vom Titel-Resolver.
+    # Die Automatik darf Handarbeit nie ueberschreiben — einen abgebrochenen
+    # eigenen Versuch aber sehr wohl wiederholen. Ohne diese Unterscheidung
+    # blockierte ein gescheiterter Lauf die Karte fuer immer.
+    source: Mapped[str] = mapped_column(String(16), default="manual")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

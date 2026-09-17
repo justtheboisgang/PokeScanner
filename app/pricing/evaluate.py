@@ -155,6 +155,7 @@ def evaluate_candidate(
     soldcomps: SoldCompsClient | None = None,
     tcgdex: TCGdexClient | None = None,
     pokewallet: PokeWalletClient | None = None,
+    card_source: str = "manual",
 ) -> EvaluationResult:
     settings = settings or get_settings()
 
@@ -203,6 +204,7 @@ def evaluate_candidate(
             candidate_id=candidate.id,
             variant_id=variant.id,
             quantity=max(1, entry.quantity),
+            source=card_source,
         )
         session.add(link)
         session.flush()
@@ -283,12 +285,19 @@ def auto_value_candidate(
     # Respect manual work / an already-computed value.
     if candidate.reference_value_id is not None:
         return inactive
-    already_identified = session.scalar(
+    # Nur Handarbeit ist tabu. Ein abgebrochener eigener Versuch hinterlaesst
+    # ebenfalls Karten (die Verknuepfung entsteht VOR der Bewertung) — den darf
+    # und soll die Automatik wiederholen, sonst bleibt die Karte fuer immer
+    # unbewertet, nur weil ein Anlauf einmal gescheitert ist.
+    identified_by_hand = session.scalar(
         select(func.count())
         .select_from(CandidateCard)
-        .where(CandidateCard.candidate_id == candidate.id)
+        .where(
+            CandidateCard.candidate_id == candidate.id,
+            CandidateCard.source == "manual",
+        )
     )
-    if already_identified:
+    if identified_by_hand:
         return inactive
     listing = candidate.listing
     if listing is None:
@@ -350,4 +359,5 @@ def auto_value_candidate(
         soldcomps=soldcomps,
         tcgdex=tcgdex,
         pokewallet=pokewallet,
+        card_source="auto",
     )

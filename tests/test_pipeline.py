@@ -290,3 +290,29 @@ def test_transient_failure_keeps_trying_the_other_terms(scoped_factory, db):
     stats = pipe.poll()
     assert src.calls == 3
     assert stats.errors == 3
+
+
+# --- Die Automatik muss im ECHTEN Worker haengen, nicht nur im Test --------
+
+
+def test_production_pipeline_has_auto_valuation_wired():
+    """Der Worker baut seine Pipeline ueber build_pipeline().
+
+    Wuerde dort eine EnrichmentService-Instanz mitgegeben, liefe die
+    automatische Bewertung im Dauerbetrieb gar nicht — jeder neue Treffer bliebe
+    unbewertbar, ohne dass irgendwo ein Fehler auftaucht. Genau so etwas faellt
+    sonst erst Wochen spaeter auf.
+    """
+    from app.ingest.pipeline import build_pipeline
+
+    settings = Settings(ENRICH_AUTO_VALUE_ENABLED=True)
+    pipeline = build_pipeline(notifier=FakeNotifier(), settings=settings)
+    assert pipeline.enrichment.auto_valuer is not None
+
+
+def test_auto_valuation_can_be_switched_off():
+    from app.ingest.pipeline import build_pipeline
+
+    settings = Settings(ENRICH_AUTO_VALUE_ENABLED=False)
+    pipeline = build_pipeline(notifier=FakeNotifier(), settings=settings)
+    assert pipeline.enrichment.auto_valuer is None

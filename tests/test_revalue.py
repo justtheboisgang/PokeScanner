@@ -92,9 +92,68 @@ def test_only_untouched_candidates_are_picked_up(patched_scope, db, monkeypatch,
         seen.append(cand.listing.title)
         return EvaluationResult(None, None, False, "Testlauf")
 
+    # Die Vorauswahl loest vorab auf (gratis) — im Test immer erfolgreich.
+    from app.models.enums import Language, Printing
+    from app.pricing.resolver import ResolvedCard
+
+    monkeypatch.setattr(
+        "app.revalue.SingleCardTitleResolver.resolve",
+        lambda self, t, d: ResolvedCard("base1-4", "Glurak", "4/102",
+                                        Language.DE, Printing.NORMAL),
+    )
     monkeypatch.setattr("app.revalue.auto_value_candidate", _fake)
     _candidate(db, "Noch offen 7/102", ext="open")
 
     run(limit=10)
     assert seen == ["Noch offen 7/102"]
     assert "Schon bewertet" not in capsys.readouterr().out
+
+
+def test_limit_counts_real_valuations_not_attempts(patched_scope, db, monkeypatch,
+                                                   capsys):
+    """Das Limit darf nicht an unauflösbaren Kandidaten verpuffen.
+
+    Beim ersten Live-Lauf waren die fünf neuesten ausgerechnet die
+    unauflösbaren — das Limit war weg, bevor eine einzige Karte bewertet wurde.
+    """
+    from app.models.enums import Language, Printing
+    from app.pricing.evaluate import EvaluationResult
+    from app.pricing.resolver import ResolvedCard
+
+    # Drei unauflösbare oben, danach zwei auflösbare.
+    for i, title in enumerate(["Konvolut A", "Konvolut B", "Konvolut C"]):
+        _candidate(db, title, ext=f"no{i}")
+    for i, title in enumerate(["Evoli 51/64", "Rattikarl 40/102"]):
+        _candidate(db, title, ext=f"yes{i}")
+
+    def _resolve(self, title, description):
+        if "/" not in title:
+            return None
+        return ResolvedCard("base1-4", "X", "4/102", Language.DE, Printing.NORMAL)
+
+    valued: list[str] = []
+
+    def _fake(session, cand, **kw):
+        valued.append(cand.listing.title)
+        return EvaluationResult(None, None, False, None)
+
+    monkeypatch.setattr("app.revalue.SingleCardTitleResolver.resolve", _resolve)
+    monkeypatch.setattr("app.revalue.auto_value_candidate", _fake)
+
+    run(limit=2)
+    # Beide auflösbaren, keiner der Konvolute.
+    assert sorted(valued) == ["Evoli 51/64", "Rattikarl 40/102"]
+
+
+def test_says_so_when_nothing_in_the_pool_resolves(patched_scope, db, monkeypatch,
+                                                  capsys):
+    _candidate(db, "Konvolut ohne Nummer", ext="none1")
+    monkeypatch.setattr(
+        "app.revalue.SingleCardTitleResolver.resolve", lambda self, t, d: None
+    )
+    monkeypatch.setattr(
+        "app.revalue.auto_value_candidate",
+        lambda *a, **kw: (_ for _ in ()).throw(AssertionError("darf nicht laufen")),
+    )
+    run(limit=5)
+    assert "Kein auflösbarer Kandidat" in capsys.readouterr().out

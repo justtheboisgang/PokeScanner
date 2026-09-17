@@ -49,31 +49,32 @@ def run(limit: int = 5, dry_run: bool = False) -> None:
     valued = 0
     skipped = 0
     with session_scope() as session:
-        candidates = session.scalars(
+        # Einen groesseren Vorrat holen: das Limit soll ECHTE Bewertungen zaehlen,
+        # nicht Versuche. Sonst verpufft es an Kandidaten, die ohnehin nichts
+        # kosten wuerden (nicht aufloesbar oder unter der Nachschlagschwelle) —
+        # genau das passierte beim ersten Lauf.
+        pool = session.scalars(
             select(Candidate)
             .where(Candidate.reference_value_id.is_(None))
             .options(joinedload(Candidate.listing))
             .order_by(Candidate.id.desc())
-            .limit(limit)
+            .limit(max(limit * 10, 50) if not dry_run else limit)
         ).unique().all()
 
-        if not candidates:
+        if not pool:
             print("Keine unbewerteten Kandidaten gefunden.")
             return
 
-        print(f"\n=== {len(candidates)} Kandidaten werden nachbewertet ===")
         if dry_run:
+            print(f"\n=== {len(pool)} Kandidaten werden geprüft ===")
             print("(Trockenlauf: nur Auflösung, keine kostenpflichtige Bewertung)\n")
-
-        for cand in candidates:
-            listing = cand.listing
-            if listing is None:
-                continue
-            price = f"{listing.price} {listing.currency}" if listing.price else "—"
-            print(f"\n  #{cand.id}  {listing.title}")
-            print(f"    Preis: {price}")
-
-            if dry_run:
+            for cand in pool:
+                listing = cand.listing
+                if listing is None:
+                    continue
+                price = f"{listing.price} {listing.currency}" if listing.price else "—"
+                print(f"\n  #{cand.id}  {listing.title}")
+                print(f"    Preis: {price}")
                 resolved = resolver.resolve(listing.title, listing.description)
                 print(
                     f"    {'aufgelöst: ' + resolved.name + ' ' + (resolved.number or '')}"
@@ -81,7 +82,37 @@ def run(limit: int = 5, dry_run: bool = False) -> None:
                     else "    nicht auflösbar -> unbewertbar"
                 )
                 skipped += 1
+            print(f"\n=== {valued} bewertet, {skipped} nicht bewertet ===\n")
+            return
+
+        # Vorauswahl ist gratis (nur TCGdex) und entscheidet, wofuer Geld fliesst.
+        threshold = settings.single_card_lookup_threshold_eur
+        candidates: list[Candidate] = []
+        for cand in pool:
+            if len(candidates) >= limit:
+                break
+            listing = cand.listing
+            if listing is None:
                 continue
+            if resolver.resolve(listing.title, listing.description) is None:
+                continue
+            candidates.append(cand)
+
+        if not candidates:
+            print(
+                f"\nKein auflösbarer Kandidat unter den letzten {len(pool)}.\n"
+                "Mit --dry-run siehst du, woran es je Titel liegt.\n"
+            )
+            return
+
+        print(f"\n=== {len(candidates)} auflösbare Kandidaten werden bewertet ===")
+        print(f"(aus den letzten {len(pool)} unbewerteten; Schwelle {threshold} EUR)\n")
+
+        for cand in candidates:
+            listing = cand.listing
+            price = f"{listing.price} {listing.currency}" if listing.price else "—"
+            print(f"\n  #{cand.id}  {listing.title}")
+            print(f"    Preis: {price}")
 
             try:
                 result = auto_value_candidate(

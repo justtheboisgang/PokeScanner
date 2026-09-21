@@ -83,3 +83,17 @@ def client(session_factory) -> Iterator[TestClient]:
     app.dependency_overrides[get_db] = override_get_db
     with TestClient(app) as c:
         yield c
+
+
+@pytest.fixture(autouse=True)
+def _reset_soldcomps_quota_block():
+    """Die Kontingent-Sperre ist prozessweit — zwischen Tests zuruecksetzen.
+
+    Sonst faerbt ein Test, der absichtlich ein 'quota_exceeded' ausloest, auf
+    alle folgenden ab (im echten Betrieb faellt sie mit dem Prozess weg).
+    """
+    from app.clients.soldcomps import SoldCompsClient
+
+    SoldCompsClient.reset_quota_block()
+    yield
+    SoldCompsClient.reset_quota_block()

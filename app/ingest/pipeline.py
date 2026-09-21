@@ -13,6 +13,7 @@ from collections.abc import Callable
 from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.alerts.discord import AlertContent, DiscordNotifier
@@ -276,6 +277,16 @@ class IngestionPipeline:
                 stats.items_seen += 1
                 try:
                     self._process_item(normalized, term, stats)
+                except IntegrityError:
+                    # Zwei Durchlaeufe gleichzeitig (z.B. der Scheduler und ein
+                    # Aufruf von Hand): der andere hat dasselbe Inserat eine
+                    # Sekunde frueher eingetragen. Kein Fehler und vor allem
+                    # kein zweiter Alarm — schlicht schon bekannt.
+                    logger.debug(
+                        "listing %s was inserted by a concurrent poll",
+                        normalized.external_id,
+                    )
+                    stats.skipped_seen += 1
                 except Exception:
                     logger.exception(
                         "failed to process item from %s for term %r", source.name, term

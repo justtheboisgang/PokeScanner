@@ -266,6 +266,14 @@ def evaluate_candidate(
         note = "SoldComps ist nicht konfiguriert (SOLDCOMPS_API_KEY) — Karten wurden erfasst, aber nicht bewertet."
     elif not soldcomps_active:
         note = "SoldComps-Tagesbudget erreicht — heute keine Bewertung möglich."
+    elif SoldCompsClient.quota_blocked():
+        # Der Unterschied zaehlt: das Tagesbudget ist MEINE Bremse, das
+        # Monatskontingent die des Anbieters. Nur letzteres muss der Betreiber
+        # dort nachbuchen.
+        note = (
+            "SoldComps-Monatskontingent aufgebraucht — echte Verkaufspreise "
+            "erst wieder nach Aufstockung oder Monatswechsel."
+        )
 
     # Der Versuch ist gelaufen — ob mit Wert oder ohne. Genau diese Notiz
     # unterscheidet spaeter "geprueft, nichts gefunden" von "nie angefasst".

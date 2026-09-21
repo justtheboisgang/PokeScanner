@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 import time
 from collections.abc import Callable, Iterator
+from datetime import date, datetime, timezone
 from dataclasses import dataclass, field
 
 import httpx
@@ -48,6 +49,22 @@ class ScrapePage:
 
 
 class SoldCompsClient:
+    # Ist das Monatskontingent aufgebraucht, antwortet JEDER weitere Aufruf mit
+    # demselben 429 — und kostet trotzdem Zeit. Im Live-Lauf hing die Maschine
+    # so minutenlang an Anfragen, die nicht beantwortet werden konnten. Deshalb
+    # wird das Datum gemerkt: fuer den Rest des Tages faellt die Kaskade sofort
+    # auf Stufe 4 durch, statt ins Leere zu telefonieren. Am naechsten Tag wird
+    # einmal nachgesehen — ein neuer Monat muss ja bemerkt werden.
+    _quota_blocked_on: date | None = None
+
+    @classmethod
+    def quota_blocked(cls, today: date | None = None) -> bool:
+        return cls._quota_blocked_on == (today or datetime.now(timezone.utc).date())
+
+    @classmethod
+    def reset_quota_block(cls) -> None:
+        cls._quota_blocked_on = None
+
     def __init__(
         self,
         api_key: str | None = None,
@@ -144,6 +161,7 @@ class SoldCompsClient:
             pass
         if code == "quota_exceeded":
             # Monthly contingent spent — do NOT retry, alert (§4.2.5).
+            SoldCompsClient._quota_blocked_on = datetime.now(timezone.utc).date()
             raise QuotaExceededError("SoldComps quota exceeded")
         retry_after_hdr = resp.headers.get("Retry-After")
         retry_after: float | None = None
@@ -155,6 +173,11 @@ class SoldCompsClient:
         raise RateLimitError("SoldComps rate limited", retry_after=retry_after)
 
     def _get(self, path: str, params: dict, *, batch: bool) -> dict:
+        if self.quota_blocked():
+            # Nicht mitzaehlen: ohne Anfrage entstehen auch keine Kosten.
+            raise QuotaExceededError(
+                "SoldComps quota exceeded (Monatskontingent aufgebraucht)"
+            )
         self._throttle()
         self.request_count += 1
         try:

@@ -172,3 +172,31 @@ def test_400_surfaces_the_api_explanation():
         _client(handler).scrape_sold("x")
     assert "keyword" in str(exc.value)
     assert "400" in str(exc.value)
+
+
+def test_quota_exceeded_stops_further_requests_for_the_day():
+    """Ist das Monatskontingent leer, antwortet jeder weitere Aufruf gleich.
+
+    Im Live-Lauf hing die Maschine minutenlang an Anfragen, die nicht
+    beantwortet werden konnten. Nach dem ersten 'quota_exceeded' geht deshalb
+    keine weitere Anfrage mehr raus.
+    """
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(str(request.url))
+        return httpx.Response(429, json={"code": "quota_exceeded"})
+
+    client = _client(handler)
+    with pytest.raises(QuotaExceededError):
+        client.scrape_page("glurak", sold=True)
+    assert len(calls) == 1
+
+    # Zweiter Anlauf: gleiche Fehlermeldung, aber KEIN Netzverkehr mehr.
+    with pytest.raises(QuotaExceededError):
+        client.scrape_page("turtok", sold=True)
+    assert len(calls) == 1
+    assert SoldCompsClient.quota_blocked() is True
+
+    # Und ohne Anfrage entstehen auch keine Kosten.
+    assert client.request_count == 1

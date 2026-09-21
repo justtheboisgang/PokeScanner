@@ -216,3 +216,88 @@ def test_market_comparison_without_data_says_so(client, db):
     assert cmp["sample_size"] == 0
     assert cmp["median_ratio"] is None
     assert "Noch keine" in cmp["verdict"]
+
+
+# --- Marktpreis traegt die Bewertung, wenn SoldComps schweigt ---------------
+
+
+def test_market_price_carries_the_valuation_when_soldcomps_is_out(db):
+    """Aufgebrauchtes Kontingent darf die Bewertung nicht stilllegen.
+
+    Der Betreiber hat es so entschieden: geht SoldComps nicht, soll der
+    Marktpreis den Vergleich liefern — als Stufe 4 und klar als schwach
+    markiert, nie als echter Verkaufspreis.
+    """
+    from decimal import Decimal
+
+    from app.config import get_settings
+    from app.models.candidate import Candidate
+    from app.models.enums import Channel, Language, Printing, SellerType
+    from app.models.listing import Listing
+    from app.pricing.evaluate import auto_value_candidate
+    from app.pricing.resolver import ResolvedCard
+
+    lst = Listing(
+        channel=Channel.EBAY_BROWSE,
+        external_id="mkt1",
+        title="Glurak 4/102 Holo Deutsch",
+        price=Decimal("40"),
+        currency="EUR",
+        seller_type=SellerType.PRIVATE,
+        images=[],
+    )
+    db.add(lst)
+    db.flush()
+    cand = Candidate(listing_id=lst.id, matched_search_term="glurak holo")
+    db.add(cand)
+    db.flush()
+
+    class _StubResolver:
+        def resolve(self, title, description):
+            return ResolvedCard("base1-4", "Glurak", "4/102", Language.DE, Printing.HOLO)
+
+    class _StubWallet:
+        enabled = True
+
+        def pricing_for(self, name, number, prefer_holo=False):
+            return MarketPricing(
+                card_id="cm-1",
+                card_name=name,
+                variant="holo",
+                cm_avg=Decimal("120"),
+                cm_low=Decimal("90"),
+                cm_trend=Decimal("118"),
+                cm_avg7=Decimal("110"),
+                cm_avg30=Decimal("125"),
+                tcg_market_usd=None,
+                tcg_low_usd=None,
+            )
+
+    # Kein SoldComps-Schluessel — frueher hiess das: gar keine Bewertung.
+    settings = get_settings().model_copy(
+        update={"soldcomps_api_key": "", "pokewallet_api_key": "pk_test"}
+    )
+
+    # TCGdex wird nur fuer die (hier leere) Cardmarket-Reserve gefragt.
+    import httpx
+
+    from app.clients.tcgdex import TCGdexClient
+
+    tcgdex = TCGdexClient(
+        base_url="https://api.tcgdex.net/v2",
+        primary_lang="de",
+        transport=httpx.MockTransport(lambda r: httpx.Response(200, json={})),
+    )
+
+    result = auto_value_candidate(
+        db, cand, resolver=_StubResolver(), settings=settings,
+        pokewallet=_StubWallet(), tcgdex=tcgdex,
+    )
+
+    assert result.total_value_eur is not None
+    db.flush()
+    rv = cand.reference_value
+    assert rv is not None
+    assert rv.cascade_level == 4          # Marktpreis, nicht Verkaufspreis
+    assert rv.is_weak is True             # und ehrlich als schwach markiert
+    assert rv.sample_size == 0

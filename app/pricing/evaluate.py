@@ -56,6 +56,21 @@ def _mark_attempt(candidate: Candidate, note: str | None) -> None:
     candidate.valuation_note = note[:_NOTE_MAX] if note else None
 
 
+class _NoSoldComps:
+    """Platzhalter fuer eine Kaskade ohne Verkaufsdaten.
+
+    Wenn SoldComps nicht verfuegbar ist (kein Schluessel, Tagesbudget oder
+    Monatskontingent), soll die Bewertung nicht ausfallen, sondern auf den
+    Marktpreis durchfallen — Stufe 4, klar als schwach markiert. Dieser Stub
+    liefert nie Verkaufsdaten und verursacht nie Kosten.
+    """
+
+    request_count = 0
+
+    def scrape_sold(self, *args, **kwargs):
+        return []
+
+
 @dataclass
 class CardEntry:
     tcgdex_id: str | None
@@ -197,6 +212,16 @@ def evaluate_candidate(
         cascade = ReferenceValueCascade(
             soldcomps, tcgdex, CascadeConfig.from_settings()
         )
+    elif pokewallet is not None and pokewallet.enabled:
+        # Verkaufsdaten sind aus — aber der Marktpreis ist gratis und ergibt
+        # wenigstens einen Stufe-4-Wert. Ein schwacher, ehrlich markierter Wert
+        # ist mehr wert als gar keiner; ohne das stand die Bewertung still,
+        # sobald das Monatskontingent aufgebraucht war.
+        soldcomps = _NoSoldComps()
+        tcgdex = tcgdex or TCGdexClient()
+        cascade = ReferenceValueCascade(
+            soldcomps, tcgdex, CascadeConfig.from_settings()
+        )
 
     # Replace any prior identifications for this candidate. Query rather than
     # relying on candidate.cards, so re-evaluation is correct even if the caller
@@ -262,7 +287,15 @@ def evaluate_candidate(
         candidate.estimated_profit = estimated_profit
 
     note = None
-    if not settings.soldcomps_api_key:
+    if have_value and not soldcomps_active:
+        # Ein Wert kam zustande, aber ohne Verkaufsdaten. Das muss dastehen:
+        # Marktpreise sind Forderungen, keine bezahlten Preise — genau die
+        # Unterscheidung, auf der das ganze Verfahren beruht.
+        note = (
+            "Bewertet über Marktpreise (Stufe 4) — SoldComps war nicht verfügbar. "
+            "Das sind Angebotspreise, keine tatsächlich erzielten."
+        )
+    elif not settings.soldcomps_api_key:
         note = "SoldComps ist nicht konfiguriert (SOLDCOMPS_API_KEY) — Karten wurden erfasst, aber nicht bewertet."
     elif not soldcomps_active:
         note = "SoldComps-Tagesbudget erreicht — heute keine Bewertung möglich."
@@ -398,8 +431,16 @@ def auto_value_candidate(
         yield session
 
     guard = CostGuard(session_factory=_bind, settings=settings)
-    if not settings.soldcomps_api_key or guard.is_disabled(PROVIDER_SOLDCOMPS):
-        blocked = "Titel eindeutig, aber SoldComps nicht verfügbar (kein Key/Budget)."
+    sold_available = bool(settings.soldcomps_api_key) and not guard.is_disabled(
+        PROVIDER_SOLDCOMPS
+    )
+    market_available = bool(settings.pokewallet_api_key) or (
+        pokewallet is not None and pokewallet.enabled
+    )
+    # Nur wenn BEIDE Seiten schweigen, lohnt der Abbruch. Fehlt allein die
+    # Verkaufsseite, bewertet die Kaskade ueber den Marktpreis weiter (Stufe 4).
+    if not sold_available and not market_available:
+        blocked = "Titel eindeutig, aber weder SoldComps noch Marktpreise verfügbar."
         _mark_attempt(candidate, blocked)
         return EvaluationResult(None, None, False, blocked)
 

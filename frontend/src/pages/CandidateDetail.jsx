@@ -355,6 +355,14 @@ function CompsTable({ rv, attemptedAt, note }) {
         </span>
         <span className="text-xs text-slate-500">Quelle: {rv.source}</span>
       </div>
+      {rv.cascade_level === 4 && (
+        <p className="mb-3 rounded-lg border border-amber-700/40 bg-amber-950/30 p-3 text-xs text-amber-200">
+          <strong>Marktpreis, kein Verkaufspreis.</strong> Dieser Wert ist das,
+          was am Markt <em>verlangt</em> wird — nicht das, was jemand bezahlt hat.
+          Erzielte Preise liegen regelmäßig darunter. Der geschätzte Gewinn ist
+          damit eine Obergrenze, keine Zusage: vor dem Kauf selbst prüfen.
+        </p>
+      )}
       {rv.comps.length === 0 ? (
         <p className="text-sm text-slate-500">
           Keine Einzel-Comps gespeichert (z.B. TCGdex-Referenz).

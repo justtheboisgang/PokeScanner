@@ -39,6 +39,18 @@ function CascadeBadge({ item }) {
       </span>
     );
   }
+  // Stufe 4 kommt aus Marktpreisen, nicht aus Verkaeufen. "n=0 · schwach" sagt
+  // das nur fuer den, der die Kaskade kennt — hier steht es im Klartext.
+  if (item.cascade_level === 4) {
+    return (
+      <span
+        className="rounded bg-amber-600/20 px-1.5 py-0.5 text-[11px] text-amber-300 ring-1 ring-amber-600/40"
+        title="Angebotspreis am Markt, kein erzielter Verkaufspreis — nur eine Schätzung."
+      >
+        Marktpreis · geschätzt
+      </span>
+    );
+  }
   return (
     <span className="rounded bg-indigo-600/20 px-1.5 py-0.5 text-[11px] text-indigo-300 ring-1 ring-indigo-600/40">
       Stufe {item.cascade_level} · n={item.sample_size}

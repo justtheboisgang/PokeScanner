@@ -44,6 +44,15 @@ def _location(item: dict) -> str | None:
     return joined or None
 
 
+def item_country(item: dict) -> str | None:
+    """Das Herkunftsland des Angebots, so wie eBay es meldet."""
+    loc = item.get("itemLocation")
+    if not isinstance(loc, dict):
+        return None
+    country = loc.get("country")
+    return str(country).strip().upper() if country else None
+
+
 def normalize_ebay_item(item: dict) -> NormalizedListing | None:
     """Map an eBay Browse itemSummary to a NormalizedListing."""
     ext = item.get("itemId") or item.get("legacyItemId")

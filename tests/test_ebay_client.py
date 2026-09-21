@@ -120,3 +120,64 @@ def test_search_restricts_to_configured_countries():
     assert f.startswith("itemLocationCountry:{")
     assert "DE" in f and "IT" in f
     assert "GB" not in f and "JP" not in f     # Drittlaender bleiben draussen
+
+
+# --- Herkunft: Filter mitschicken UND nachpruefen ---------------------------
+
+
+class _StubClient:
+    """Ein eBay, das den mitgeschickten Herkunftsfilter ignoriert."""
+
+    def __init__(self, items):
+        self.items = items
+
+    def search_active(self, query, *, limit=50, sort=None):
+        return list(self.items)
+
+
+def _item(ext, country):
+    return {
+        "itemId": ext,
+        "title": f"Pokemon Karten {ext}",
+        "price": {"value": "20.00", "currency": "EUR"},
+        "itemLocation": {"postalCode": "12345", "country": country},
+        "itemWebUrl": f"https://ebay.de/{ext}",
+    }
+
+
+def test_source_drops_offers_from_outside_the_chosen_countries():
+    """Im Live-Betrieb kamen trotz EU-Filter Angebote aus GB und Japan durch.
+
+    Zoll und Einfuhrumsatzsteuer stecken in keiner Gewinnrechnung, also darf
+    auf die Zusage der API allein kein Verlass sein.
+    """
+    from app.ingest.sources import EbayBrowseSource
+
+    source = EbayBrowseSource(
+        _StubClient([_item("a", "DE"), _item("b", "GB"), _item("c", "JP"),
+                     _item("d", "IT")]),
+        limit=50,
+        countries=["DE", "IT", "FR"],
+    )
+    got = [n.external_id for n in source.fetch("pokemon karten")]
+    assert got == ["a", "d"]
+
+
+def test_source_without_country_list_keeps_everything():
+    """Leere Liste heisst bewusst 'weltweit' — dann wird nichts weggeworfen."""
+    from app.ingest.sources import EbayBrowseSource
+
+    source = EbayBrowseSource(
+        _StubClient([_item("a", "DE"), _item("b", "JP")]), limit=50, countries=[]
+    )
+    assert len(source.fetch("pokemon karten")) == 2
+
+
+def test_source_keeps_offers_without_a_stated_country():
+    """Ohne Herkunftsangabe nicht raten — sonst verschwinden echte Funde."""
+    from app.ingest.sources import EbayBrowseSource
+
+    item = _item("a", "DE")
+    item.pop("itemLocation")
+    source = EbayBrowseSource(_StubClient([item]), limit=50, countries=["DE"])
+    assert len(source.fetch("pokemon karten")) == 1

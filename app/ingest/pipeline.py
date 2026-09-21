@@ -357,30 +357,33 @@ class IngestionPipeline:
         # way and shows up in the Live Feed; only the Discord message is skipped.
         if self._alerts_left <= 0:
             stats.alerts_suppressed += 1
-            stats.per_term_new[term] = stats.per_term_new.get(term, 0) + 1
-            return
+        else:
+            # Alert I/O outside the transaction (R1: alert is the critical path).
+            message_id: str | None = None
+            try:
+                message_id = self.notifier.send(content)
+            except Exception:
+                # The candidate is stored and visible on the website; only
+                # Discord failed. Do NOT mark it as alerted — time-to-alert
+                # would be a lie.
+                logger.exception("Discord send failed for candidate %s", candidate_id)
+                stats.errors += 1
+            else:
+                self._alerts_left -= 1
+                with self.session_factory() as session:
+                    candidate = session.get(Candidate, candidate_id)
+                    if candidate is not None:
+                        mark_alert_sent(session, candidate, message_id)
+                stats.alerts_sent += 1
 
-        # Alert I/O outside the transaction (R1: alert is the critical path).
-        message_id: str | None = None
-        try:
-            message_id = self.notifier.send(content)
-        except Exception:
-            # The candidate is stored and visible on the website; only Discord
-            # failed. Do NOT mark it as alerted — time-to-alert would be a lie.
-            logger.exception("Discord send failed for candidate %s", candidate_id)
-            stats.errors += 1
-            stats.per_term_new[term] = stats.per_term_new.get(term, 0) + 1
-            return
-
-        self._alerts_left -= 1
-        with self.session_factory() as session:
-            candidate = session.get(Candidate, candidate_id)
-            if candidate is not None:
-                mark_alert_sent(session, candidate, message_id)
-        stats.alerts_sent += 1
         stats.per_term_new[term] = stats.per_term_new.get(term, 0) + 1
 
-        # Enrichment runs AFTER the alert (never in the critical path, §10).
+        # Anreicherung laeuft NACH dem Alarm (nie im kritischen Pfad, §10) —
+        # aber UNABHAENGIG davon, ob Discord etwas bekommen hat. Vorher hing die
+        # automatische Bewertung an der Zustellung: war die Kappe erreicht oder
+        # Discord kurz weg, wurde der Kandidat nie angefasst und blieb fuer
+        # immer "noch nicht bewertet". Bei 220 Funden und Kappe 50 betraf das
+        # 170 Stueck pro Lauf — die Mehrheit des Feeds.
         allow_vision = self._vision_calls_left > 0
         try:
             outcome = self.enrichment.enrich(candidate_id, allow_vision=allow_vision)

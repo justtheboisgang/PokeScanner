@@ -316,3 +316,68 @@ def test_auto_valuation_can_be_switched_off():
     settings = Settings(ENRICH_AUTO_VALUE_ENABLED=False)
     pipeline = build_pipeline(notifier=FakeNotifier(), settings=settings)
     assert pipeline.enrichment.auto_valuer is None
+
+
+# --- Bewertung haengt nicht an Discord --------------------------------------
+
+
+def _pipeline_with_valuer(scoped_factory, notifier, cap, seen):
+    """Pipeline mit Zustellgrenze UND einem Bewerter, der mitschreibt."""
+    def _valuer(session, candidate):
+        seen.append(candidate.id)
+        return None
+
+    settings = Settings(ALERT_MAX_PER_POLL=cap)
+    src = FakeSource(
+        Channel.KLEINANZEIGEN,
+        "kleinanzeigen",
+        {"alte pokemon karten": _many_listings(Channel.KLEINANZEIGEN, 10)},
+    )
+    return IngestionPipeline(
+        [src],
+        notifier,
+        session_factory=scoped_factory,
+        settings=settings,
+        search_terms=TERMS,
+        enrichment=EnrichmentService(
+            VisionAnalyzer(enabled=False),
+            notifier,
+            session_factory=scoped_factory,
+            auto_valuer=_valuer,
+        ),
+        hasher=FakeHasher(),
+    )
+
+
+def test_capped_candidates_are_still_valued(scoped_factory, db):
+    """Die Zustellgrenze darf die Bewertung nicht mitnehmen.
+
+    Vorher hing die Anreicherung hinter dem Discord-Versand: bei Kappe 50 und
+    220 Funden blieben 170 Kandidaten unangetastet und fuer immer "noch nicht
+    bewertet". Die Grenze gilt fuer Discord, nicht fuer die Bewertung.
+    """
+    seen: list[int] = []
+    notifier = FakeNotifier()
+    stats = _pipeline_with_valuer(scoped_factory, notifier, 3, seen).poll()
+
+    assert stats.alerts_sent == 3
+    assert stats.alerts_suppressed == 7
+    assert len(notifier.sent) == 3      # Discord bleibt gedeckelt
+    assert len(seen) == 10              # bewertet wird trotzdem alles
+
+
+def test_failed_discord_send_does_not_skip_valuation(scoped_factory, db):
+    """Ein Discord-Ausfall darf die Karte nicht unbewertet zuruecklassen."""
+    class _BrokenNotifier(FakeNotifier):
+        def send(self, content):
+            raise RuntimeError("Discord weg")
+
+    seen: list[int] = []
+    notifier = _BrokenNotifier()
+    stats = _pipeline_with_valuer(scoped_factory, notifier, 50, seen).poll()
+
+    assert stats.alerts_sent == 0
+    assert stats.errors == 10
+    assert len(seen) == 10
+    # Kein Alarm gilt als gesendet — time-to-alert bleibt ehrlich.
+    assert db.query(Candidate).filter(Candidate.alert_sent_at.isnot(None)).count() == 0

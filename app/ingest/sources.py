@@ -13,7 +13,7 @@ from typing import Protocol
 from app.clients.apify import ApifyClient
 from app.clients.ebay import EbayBrowseClient
 from app.config import Settings, get_settings
-from app.ingest.ebay_browse import normalize_ebay_item
+from app.ingest.ebay_browse import item_country, normalize_ebay_item
 from app.ingest.kleinanzeigen import (
     build_run_input,
     normalize_apify_item,
@@ -103,9 +103,14 @@ class EbayBrowseSource:
     channel = Channel.EBAY_BROWSE
     name = "ebay_browse"
 
-    def __init__(self, client: EbayBrowseClient, limit: int) -> None:
+    def __init__(
+        self, client: EbayBrowseClient, limit: int, countries: list[str] | None = None
+    ) -> None:
         self.client = client
         self.limit = limit
+        # Dieselbe Liste, die der Client als Filter mitschickt — hier aber zum
+        # NACHPRUEFEN. Leer heisst "weltweit, ich passe selbst auf".
+        self.countries = {c.strip().upper() for c in (countries or []) if c.strip()}
 
     def fetch(self, query: str) -> list[NormalizedListing]:
         # Sortierung steckt im Client (newlyListed): ohne sie liefert eBay nach
@@ -113,6 +118,15 @@ class EbayBrowseSource:
         items = self.client.search_active(query, limit=self.limit)
         out: list[NormalizedListing] = []
         for item in items:
+            # Die Herkunft wird zweimal geprueft: eBay bekommt den Filter
+            # mitgeschickt, UND hier wird nachgesehen. Im Live-Betrieb kamen
+            # trotz EU-Filter Angebote aus GB und Japan durch — auf die Zusage
+            # der API allein ist kein Verlass, und Zoll plus Einfuhrsteuer
+            # stecken in keiner Gewinnrechnung.
+            if self.countries:
+                country = item_country(item)
+                if country is not None and country not in self.countries:
+                    continue
             normalized = normalize_ebay_item(item)
             if normalized is not None:
                 out.append(normalized)
@@ -143,7 +157,11 @@ def build_sources(settings: Settings | None = None) -> list[Source]:
         )
     if settings.ebay_browse_enabled and settings.ebay_client_id:
         sources.append(
-            EbayBrowseSource(EbayBrowseClient(), settings.ebay_browse_limit)
+            EbayBrowseSource(
+                EbayBrowseClient(),
+                settings.ebay_browse_limit,
+                settings.ebay_location_country_list,
+            )
         )
 
     if not sources:

@@ -92,10 +92,101 @@ def card_local_id(card: dict) -> str | None:
         return str(cid).rsplit("-", 1)[-1]
     return None
 
-# A set-number like "4/102" pins a title to one specific card slot. The
-# denominator is the set's card count and tells sets with the same card number
-# apart ("2/102" is Base Set, not one of the other sets that also have a 2).
-_NUMBER_RE = re.compile(r"\b(\d{1,3})\s*/\s*(\d{1,3})\b")
+# Eine Kartennummer bindet den Titel an genau einen Platz im Set. Frueher wurde
+# nur "4/102" erkannt — damit fielen Promos, Meisterball-Karten und Trainer-
+# Galerien durch, also ausgerechnet die interessanten Einzelkarten:
+#   Kronjuwild WHT 007 · Glurak G Lv.X DP45 · Damythir TG06/TG30 · SV085/SV122
+#
+# Zwei Formen werden akzeptiert:
+#   1. Ein Paar "X/Y", beide Seiten optional mit Buchstabenkuerzel.
+#   2. Ein Kuerzel plus Zahl ohne Nenner (DP45, WHT 007, SWSH123).
+# Eine nackte Zahl ohne Kuerzel und ohne Nenner NICHT — "330 KP", "30 Jahre"
+# und Jahreszahlen wuerden sonst als Kartennummer durchgehen.
+# Beim Paar haengt das Kuerzel direkt an der Zahl ("SV085/SV122"). Ein
+# Leerzeichen ist hier NICHT erlaubt: sonst liest "Glurak Holo 4/102" ein
+# Kuerzel "HOLO" und verliert den Nenner.
+_NUMBER_PAIR_RE = re.compile(
+    r"\b([A-Z]{0,4})(\d{1,3})\s*/\s*([A-Z]{0,4})(\d{1,3})\b", re.IGNORECASE
+)
+# Ohne Nenner muss das Kuerzel GROSS geschrieben sein — so stehen echte
+# Kartencodes auf der Karte (WHT 007, DP45, SWSH123, TG06). Das unterscheidet
+# sie von gewoehnlichen Titelwoertern wie "Holo 45" oder "Lot 14".
+_PROMO_NUMBER_RE = re.compile(r"\b([A-Z]{2,4})[\s-]?(\d{1,3})\b")
+
+# Kuerzel, die zwar wie ein Kartencode aussehen, aber keiner sind. Ohne das
+# liest der Resolver aus "Pokemon TCG Karten" ein "TCG" heraus.
+_NOT_A_CARD_CODE = frozenset(
+    {
+        # Zustand, Sprache, Bewertung
+        "NM", "LP", "MP", "HP", "PSA", "BGS", "CGC", "DE", "EN", "FR", "IT",
+        "JP", "ED", "NR", "NO", "OVP", "TOP",
+        # Spielbegriffe und Werbeworte, die zufaellig vor einer Zahl stehen
+        "TCG", "KP", "EX", "GX", "VMAX", "HOLO", "FULL", "ART", "SET", "LOT",
+        "NEU", "ALT", "MEGA", "RARE", "MINT", "NEAR", "USED", "PKM", "WOTC",
+        "STK", "PCS", "EUR", "USD", "GBP",
+    }
+)
+
+
+@dataclass(frozen=True)
+class CardNumber:
+    """Die Nummer aus dem Titel: Token wie im Titel, plus Nenner falls vorhanden."""
+
+    token: str            # "4", "TG06", "WHT007"
+    set_size: int | None  # 102 — nur wenn beide Seiten reine Zahlen sind
+    printed: str          # so, wie es im Titel stand ("4/102", "WHT 007")
+
+
+def extract_card_number(text: str) -> CardNumber | None:
+    m = _NUMBER_PAIR_RE.search(text)
+    if m:
+        left_prefix, left, right_prefix, right = m.groups()
+        token = f"{(left_prefix or '').upper()}{left}"
+        # Der Nenner taugt nur dann zum Eingrenzen, wenn er die Set-Groesse ist.
+        # Bei "SV085/SV122" ist er das nicht — die Shiny-Vault-Nummerierung
+        # laeuft neben dem Hauptset her.
+        set_size = int(right) if not left_prefix and not right_prefix else None
+        return CardNumber(token=token, set_size=set_size, printed=m.group(0).strip())
+
+    for m in _PROMO_NUMBER_RE.finditer(text):
+        prefix, digits = m.groups()
+        if prefix.upper() in _NOT_A_CARD_CODE:
+            continue
+        return CardNumber(
+            token=f"{prefix.upper()}{digits}", set_size=None, printed=m.group(0).strip()
+        )
+    return None
+
+
+def _split_code(value: str) -> tuple[str, str]:
+    """"TG06" -> ("TG", "6"); "007" -> ("", "7")."""
+    raw = re.sub(r"[\s\-_]", "", str(value)).upper()
+    m = re.match(r"^([A-Z]*)(\d+)$", raw)
+    if not m:
+        return raw, ""
+    letters, digits = m.groups()
+    return letters, str(int(digits))
+
+
+def numbers_match(card_local: object, wanted: str) -> bool:
+    """Passt die Nummer der TCGdex-Karte zu der aus dem Titel?
+
+    TCGdex fuehrt Promos mal als "SWSH123", mal nur als "123" — welche Form es
+    ist, laesst sich von aussen nicht zuverlaessig sagen. Deshalb wird beides
+    akzeptiert, aber nur in EINE Richtung: nennt der Titel ein Kuerzel und
+    TCGdex nur die Zahl, gilt das als Treffer. Umgekehrt nicht — sonst wuerde
+    "4/102" auf eine Trainer-Galerie-Karte "TG04" passen und einen falschen
+    Wert erfinden.
+    """
+    c_letters, c_digits = _split_code(str(card_local))
+    w_letters, w_digits = _split_code(wanted)
+    if not c_digits or not w_digits:
+        return str(card_local).strip().upper() == wanted.strip().upper()
+    if c_digits != w_digits:
+        return False
+    if c_letters == w_letters:
+        return True
+    return bool(w_letters) and not c_letters
 
 # Jubilee/anniversary reprints carry the ORIGINAL's numbering but are worth a
 # fraction of it. Resolving "Turtok 2/102 ... Celebration 25. Jubiläum" to the
@@ -193,6 +284,23 @@ def _printing_from_title(low: str) -> Printing:
     return Printing.NORMAL
 
 
+def _name_in_title(card_name: str, low_title: str) -> bool:
+    """Kommt der Kartenname im Titel vor?
+
+    Verglichen wird ohne Zusaetze wie "-EX", "V" oder "VMAX": eBay-Titel
+    schreiben "Turtok-EX", TCGdex fuehrt "Turtok ex". Ein Wortteil reicht
+    NICHT — "Glurak" darf nicht auf "Glurak G Lv.X" passen, wenn beide Karten
+    im Rennen sind.
+    """
+    name = card_name.strip().lower()
+    if not name:
+        return False
+    if name in low_title:
+        return True
+    base = re.split(r"\s+(?:ex|gx|v|vmax|vstar|lv\.?x)\b", name, maxsplit=1)[0].strip()
+    return bool(base) and len(base) >= 4 and base in low_title
+
+
 def _says_german(low: str) -> bool:
     return "deutsch" in low or "german" in low
 
@@ -247,14 +355,17 @@ class SingleCardTitleResolver:
             note("Tor 1a: Neudruck/Jubilaeum erkannt -> unbewertbar (Wert waere erfunden)")
             return None
 
-        # Gate 1b: require a set-number ("4/102") — one specific card slot.
-        m = _NUMBER_RE.search(text)
-        if not m:
-            note("Tor 1b: keine Kartennummer wie 4/102 im Titel -> unbewertbar")
+        # Gate 1b: require a card number — one specific card slot.
+        number = extract_card_number(text)
+        if number is None:
+            note(
+                "Tor 1b: keine Kartennummer im Titel (z.B. 4/102, TG06/TG30, "
+                "DP45) -> unbewertbar"
+            )
             return None
-        local_id = normalize_number(m.group(1))
-        set_size = int(m.group(2))
-        note(f"Tor 1b: Kartennummer {m.group(1)}/{m.group(2)} gefunden")
+        local_id = number.token
+        set_size = number.set_size
+        note(f"Tor 1b: Kartennummer {number.printed} gefunden")
 
         # Name tokens: longest first, drop noise. Try the strongest few.
         tokens = sorted(
@@ -290,9 +401,8 @@ class SingleCardTitleResolver:
                     if not cid:
                         continue
                     if (
-                        (local := card_local_id(card)) is not None
-                        and normalize_number(local) == local_id
-                    ):
+                        local := card_local_id(card)
+                    ) is not None and numbers_match(local, local_id):
                         found[str(cid)] = card
             return found
 
@@ -313,7 +423,7 @@ class SingleCardTitleResolver:
 
         # The denominator narrows several same-numbered cards down to the set
         # that actually has that many cards.
-        if len(matches) > 1:
+        if len(matches) > 1 and set_size is not None:
             sizes = self._set_sizes(lang_code)
             narrowed = {
                 cid: card
@@ -328,6 +438,25 @@ class SingleCardTitleResolver:
                 matches = narrowed
             elif narrowed:
                 matches = narrowed
+
+        # Mehrere Treffer heisst nicht automatisch "unbewertbar". Steht der Name
+        # EINER dieser Karten im Titel und der der anderen nicht, ist der Fall
+        # klar — der Titel nennt sie ja beim Namen. Das ist strenger als "ein
+        # Suchwort hat zufaellig getroffen": gefordert wird der Kartenname
+        # selbst. Ohne diesen Schritt warf die Suche nach drei Titelwoertern
+        # ihre eigenen Nebentreffer als Mehrdeutigkeit wieder weg.
+        if len(matches) > 1:
+            by_name = {
+                cid: c
+                for cid, c in matches.items()
+                if _name_in_title(str(c.get("name") or ""), low)
+            }
+            if len(by_name) == 1:
+                note(
+                    f"Tor 2: {len(matches)} Kandidaten — nur "
+                    f"{next(iter(by_name.values())).get('name')} steht im Titel"
+                )
+                matches = by_name
 
         # Gate 2: exactly one distinct card, or it's ambiguous -> unbewertbar.
         if len(matches) != 1:
@@ -358,7 +487,15 @@ class SingleCardTitleResolver:
         return ResolvedCard(
             tcgdex_id=str(card["id"]),
             name=str(name),
-            number=f"{int(m.group(1))}/{int(m.group(2))}",
+            # Die Nummer fuer die spaetere Suche. Bei "4/102" bleibt der Nenner
+            # dabei: eBay-Titel schreiben ihn mit, und die Verkaufssuche findet
+            # damit deutlich mehr. Bei Promos gibt es keinen, da steht das
+            # Kuerzel wie im Titel.
+            number=(
+                f"{_split_code(number.token)[1]}/{number.set_size}"
+                if number.set_size is not None
+                else number.printed.upper()
+            ),
             language=language,
             printing=_printing_from_title(low),
         )

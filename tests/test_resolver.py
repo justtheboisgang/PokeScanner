@@ -671,3 +671,108 @@ def test_successful_valuation_clears_a_stale_reason(db):
     assert cand.reference_value_id is not None
     assert cand.valuation_attempted_at is not None
     assert cand.valuation_note is None
+
+
+# --- Kartennummern jenseits von "4/102" ------------------------------------
+#
+# Aus dem Live-Feed: Promos, Meisterball-Karten und Trainer-Galerien fielen
+# alle durch Tor 1b, weil ihre Nummern ein Buchstabenkuerzel tragen. Das war
+# ausgerechnet der wertvolle Teil der Einzelkarten.
+
+
+def test_extracts_numbers_from_real_ebay_titles():
+    from app.pricing.resolver import extract_card_number
+
+    cases = {
+        "Kronjuwild WHT 007 MEISTERBALL Weiße Flammen Pokemon DE NM": ("WHT007", None),
+        "Glurak G Lv.X DP45 – Pokémon TCG Deutsch Holo SP 120 KP (2009)": ("DP45", None),
+        "Pokémon Damythir TG06/TG30 Astral Glanz Trainer Galerie": ("TG06", None),
+        "Pokemon Grimmsnarl SV085/SV122 Shiny Vault": ("SV085", None),
+        "Pokémon TCG Turtok-EX 009/165 EX Holo Deutsch 330 KP": ("009", 165),
+        "Pokemon Karte Glurak Holo 4/102 Base Set Deutsch": ("4", 102),
+    }
+    for title, (token, size) in cases.items():
+        number = extract_card_number(title)
+        assert number is not None, title
+        assert number.token == token, title
+        # Der Nenner zaehlt nur, wenn er wirklich die Set-Groesse ist.
+        assert number.set_size == size, title
+
+
+def test_title_noise_is_not_mistaken_for_a_card_number():
+    """Eine nackte Zahl ist keine Kartennummer — sonst wird jeder Titel 'erkannt'."""
+    from app.pricing.resolver import extract_card_number
+
+    for title in (
+        "Pokemon Karten 30 Jahre Konvolut 31 Karten Pikachu komplett 1 bis 30",
+        "826 gemischte japanische Pokemon Karten Konvolut - 86 Rare",
+        "Pokemon TCG Ascended Heroes Bulk Bundle - 380+ Karten",
+        "Pokemon Karten Ar Konvolut Verkauf",
+        "Pokemon Glurak Holo 45 Karten Sammlung",   # "Holo 45" ist kein Code
+    ):
+        assert extract_card_number(title) is None, title
+
+
+def test_number_matching_accepts_both_spellings_but_not_backwards():
+    """TCGdex fuehrt Promos mal mit, mal ohne Kuerzel — aber nur in eine Richtung."""
+    from app.pricing.resolver import numbers_match
+
+    assert numbers_match("TG06", "TG06") is True
+    assert numbers_match("6", "TG06") is True        # TCGdex nur die Zahl
+    assert numbers_match("007", "WHT007") is True    # fuehrende Nullen egal
+    # Umgekehrt NICHT: sonst wuerde "4/102" auf die Trainer-Galerie TG04 passen
+    # und einen voellig falschen Wert erfinden.
+    assert numbers_match("TG04", "4") is False
+    assert numbers_match("SV085", "85") is False
+    assert numbers_match("5", "4") is False
+
+
+def test_promo_number_resolves_end_to_end():
+    """Eine Promo ohne Nenner muss bis zur aufgeloesten Karte durchkommen."""
+    cards = [
+        {"id": "dpp-DP45", "localId": "DP45", "name": "Glurak G Lv.X"},
+        {"id": "base1-4", "localId": "4", "name": "Glurak"},
+    ]
+    resolver = SingleCardTitleResolver(_tcgdex(_one_card_handler(cards)))
+    trace: list[str] = []
+    resolved = resolver.resolve(
+        "Glurak G Lv.X DP45 Pokémon TCG Deutsch Holo SP", None, trace=trace
+    )
+    assert resolved is not None, trace
+    assert resolved.tcgdex_id == "dpp-DP45"
+    assert resolved.number == "DP45"
+
+
+def test_ambiguity_is_resolved_when_only_one_name_is_in_the_title():
+    """Drei Suchwoerter bringen Nebentreffer — die dürfen den Fund nicht killen."""
+    cards = [
+        {"id": "base1-4", "localId": "4", "name": "Glurak"},
+        {"id": "xy12-4", "localId": "4", "name": "Evolutionsstein"},
+    ]
+    resolver = SingleCardTitleResolver(_tcgdex(_one_card_handler(cards)))
+    trace: list[str] = []
+    resolved = resolver.resolve("Pokemon Glurak 4/102 Base Set Deutsch", None, trace=trace)
+    assert resolved is not None, trace
+    assert resolved.tcgdex_id == "base1-4"
+
+
+def test_ambiguity_stays_ambiguous_when_both_names_fit():
+    """Steht keiner oder stehen beide im Titel, bleibt es ehrlich unbewertbar."""
+    cards = [
+        {"id": "base1-4", "localId": "4", "name": "Glurak"},
+        {"id": "xy2-4", "localId": "4", "name": "Bisaflor"},
+    ]
+    resolver = SingleCardTitleResolver(_tcgdex(_one_card_handler(cards)))
+    assert resolver.resolve("Pokemon Glurak und Bisaflor 4/102 Deutsch", None) is None
+
+
+def test_suffixes_do_not_block_the_name_match():
+    """eBay schreibt 'Turtok-EX', TCGdex fuehrt 'Turtok ex'."""
+    cards = [
+        {"id": "sv3-9", "localId": "009", "name": "Turtok ex"},
+        {"id": "other-9", "localId": "009", "name": "Wablu"},
+    ]
+    resolver = SingleCardTitleResolver(_tcgdex(_one_card_handler(cards)))
+    resolved = resolver.resolve("Pokémon TCG Turtok-EX 009/165 Holo Deutsch", None)
+    assert resolved is not None
+    assert resolved.tcgdex_id == "sv3-9"

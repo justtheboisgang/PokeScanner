@@ -40,6 +40,8 @@ export const api = {
   getCalibration: () => request(`/calibration`),
   getCosts: () => request(`/costs`),
   getDiagnostics: () => request(`/diagnostics`),
+  listAuctions: ({ includePast = false } = {}) =>
+    request(`/auctions?include_past=${includePast}`),
 };
 
 export function formatEuro(value, currency = "EUR") {

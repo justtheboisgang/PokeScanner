@@ -10,7 +10,7 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import analytics, candidates, cards, journal, trades
+from app.api import analytics, auctions, candidates, cards, journal, trades
 from app.api.auth import BasicAuthMiddleware
 from app.config import get_settings
 
@@ -41,6 +41,7 @@ def create_app() -> FastAPI:
     def health() -> dict:
         return {"status": "ok"}
 
+    app.include_router(auctions.router)
     app.include_router(candidates.router)
     app.include_router(cards.router)
     app.include_router(journal.router)

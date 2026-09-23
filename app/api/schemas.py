@@ -307,6 +307,30 @@ class CalibrationSummary(BaseModel):
     market_comparison: MarketComparison | None = None
 
 
+class AuctionItem(BaseModel):
+    """Eine beobachtete Auktion, so wie die Website sie zeigt."""
+
+    id: int
+    title: str
+    url: str | None
+    image: str | None
+    currency: str
+    current_price: Decimal | None
+    ends_at: datetime
+    # Negativ = schon vorbei. Die Seite rechnet daraus den Countdown.
+    seconds_left: int
+    reference_value_eur: Decimal | None
+    reference_source: str | None
+    discount_pct: float | None
+    would_alert: bool
+    card_name: str | None
+    card_number: str | None
+    skip_reason: str | None
+    matched_search_term: str | None
+    alerted_at: datetime | None
+    checked_at: datetime | None
+
+
 class TermDiagnostic(BaseModel):
     term: str
     candidates: int

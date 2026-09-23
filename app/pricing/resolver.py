@@ -198,6 +198,33 @@ _REPRINT_WORDS = re.compile(
 )
 
 
+# Nicht jedes Pokemon-Angebot ist eine Karte. Displays, Booster, Tins, Muenzen,
+# Sleeves, sogar Game-Boy-Spiele laufen ueber dieselben Suchbegriffe mit. Die
+# haben keine Kartennummer — und als "Karte nicht erkannt" zu zaehlen waere
+# falsch: sie sind gar keine. Diese Pruefung greift NUR, wenn im Titel keine
+# Kartennummer steht; "Glurak 4/102 aus Booster gezogen" bleibt eine Karte.
+_PRODUCT_SUBSTRINGS = (
+    "display", "booster", "elite trainer", "trainer box", "blister", "tin ",
+    "sammelalbum", "portfolio", "toploader", "sleeve", "huelle", "hülle",
+    "schutzhuelle", "schutzhülle", "muenze", "münze", "coin", "charm",
+    "plüsch", "pluesch", "figur", "spielkonsole", "game boy", "gameboy",
+    "nintendo", "poster", "sticker", "schluesselanhaenger", "schlüsselanhänger",
+    "geldboerse", "geldbörse", "rucksack", "puzzle", "brettspiel",
+)
+_PRODUCT_WORDS = re.compile(
+    r"\b(?:etb|tin|pack|packung|päckchen|paeckchen|box|boxen|tüte|tuete|"
+    r"tüten|tueten|umschlag|umschläge|spiel|spiele|kissen|tasse)\b",
+    re.IGNORECASE,
+)
+
+
+def looks_like_sealed_product(text: str) -> bool:
+    low = text.lower()
+    return any(h in low for h in _PRODUCT_SUBSTRINGS) or bool(
+        _PRODUCT_WORDS.search(text)
+    )
+
+
 def looks_like_reprint(text: str) -> bool:
     low = text.lower()
     return any(h in low for h in _REPRINT_SUBSTRINGS) or bool(
@@ -358,10 +385,19 @@ class SingleCardTitleResolver:
         # Gate 1b: require a card number — one specific card slot.
         number = extract_card_number(text)
         if number is None:
-            note(
-                "Tor 1b: keine Kartennummer im Titel (z.B. 4/102, TG06/TG30, "
-                "DP45) -> unbewertbar"
-            )
+            # Erst pruefen, ob das ueberhaupt eine Karte ist. "Kein Einzelkarten-
+            # Angebot" und "Karte ohne Nummer im Titel" sind zwei verschiedene
+            # Auskuenfte, und nur die zweite ist eine Luecke der Automatik.
+            if looks_like_sealed_product(text):
+                note(
+                    "Tor 1b: kein Einzelkarten-Angebot (Zubehör oder versiegelte "
+                    "Ware) -> unbewertbar"
+                )
+            else:
+                note(
+                    "Tor 1b: keine Kartennummer im Titel (z.B. 4/102, TG06/TG30, "
+                    "DP45) -> unbewertbar"
+                )
             return None
         local_id = number.token
         set_size = number.set_size

@@ -88,3 +88,37 @@ def test_reprints_are_counted_separately(patched_scope, db, monkeypatch, capsys)
     out = capsys.readouterr().out
     assert "Neudrucke / Jubilaeen  :    1" in out
     assert "Einzelkarten           :    0" in out
+
+
+def test_accessories_are_not_counted_as_unrecognized_cards(patched_scope, db,
+                                                           monkeypatch, capsys):
+    """Ein Display ist keine Karte — es darf die Quote nicht druecken."""
+    _listing(db, "Pokemon Display 36 Booster Karmesin Deutsch OVP", "p1")
+    _listing(db, "Pokemon TCG Muenzen mehrfarbig teils Holofolie", "p2")
+    _listing(db, "Pokemon Elite Trainer Box Deutsch versiegelt", "p3")
+    _listing(db, "Glurak Holo 4/102 Base Set Deutsch", "s1")
+
+    monkeypatch.setattr(
+        "app.resolverstats.TCGdexClient",
+        lambda *a, **kw: _tcgdex([{"id": "base1-4", "localId": "4", "name": "Glurak"}]),
+    )
+    run(limit=10)
+    out = capsys.readouterr().out
+
+    assert "Zubehoer / versiegelt  :    3" in out
+    assert "Einzelkarten           :    1" in out
+    assert "(100%)" in out
+
+
+def test_a_card_number_beats_a_product_word(patched_scope, db, monkeypatch, capsys):
+    """'Aus Booster gezogen' macht aus einer Karte kein Zubehoer."""
+    _listing(db, "Glurak 4/102 Holo Deutsch aus Booster gezogen", "s2")
+
+    monkeypatch.setattr(
+        "app.resolverstats.TCGdexClient",
+        lambda *a, **kw: _tcgdex([{"id": "base1-4", "localId": "4", "name": "Glurak"}]),
+    )
+    recognized = run(limit=10)
+    out = capsys.readouterr().out
+    assert recognized == 1
+    assert "Zubehoer / versiegelt  :    0" in out

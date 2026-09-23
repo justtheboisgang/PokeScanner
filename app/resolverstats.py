@@ -35,8 +35,10 @@ from app.models.enums import Language
 from app.models.listing import Listing
 from app.pricing.resolver import (
     SingleCardTitleResolver,
+    extract_card_number,
     looks_like_bundle,
     looks_like_reprint,
+    looks_like_sealed_product,
 )
 
 logger = logging.getLogger(__name__)
@@ -69,7 +71,7 @@ def run(limit: int = 150, show_titles: bool = False) -> int:
     lang = Language.DE if settings.tcgdex_primary_lang == "de" else Language.EN
     resolver = SingleCardTitleResolver(TCGdexClient(), lang=lang)
 
-    bundles = reprints = 0
+    bundles = reprints = products = 0
     singles: list[tuple[str, bool, str]] = []  # (Titel, erkannt, Grund)
 
     with session_scope() as session:
@@ -91,6 +93,14 @@ def run(limit: int = 150, show_titles: bool = False) -> int:
             if looks_like_reprint(title):
                 reprints += 1
                 continue
+            # Displays, Booster, Muenzen, sogar Game-Boy-Spiele laufen ueber
+            # dieselben Suchbegriffe mit. Sie als "Karte nicht erkannt" zu
+            # zaehlen waere falsch — sie sind gar keine Karte. Nur wenn auch
+            # keine Kartennummer dasteht: "Glurak 4/102 aus Booster" bleibt
+            # eine Karte.
+            if extract_card_number(title) is None and looks_like_sealed_product(title):
+                products += 1
+                continue
             trace: list[str] = []
             try:
                 resolved = resolver.resolve(title, listing.description, trace=trace)
@@ -106,6 +116,8 @@ def run(limit: int = 150, show_titles: bool = False) -> int:
           "   — Handarbeit, nicht Automatik")
     print(f"Neudrucke / Jubilaeen  : {reprints:>4}  ({_pct(reprints, total)})"
           "   — bewusst abgelehnt")
+    print(f"Zubehoer / versiegelt  : {products:>4}  ({_pct(products, total)})"
+          "   — gar keine Einzelkarte")
     print(f"Einzelkarten           : {measured:>4}  ({_pct(measured, total)})")
     print(f"  davon ERKANNT        : {recognized:>4}  ({_pct(recognized, measured)})"
           "   <- die Quote, um die es geht")

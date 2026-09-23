@@ -5,7 +5,6 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
-import httpx
 import pytest
 
 from app.auctions import AuctionWatcher

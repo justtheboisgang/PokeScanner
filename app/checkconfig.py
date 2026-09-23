@@ -113,7 +113,6 @@ def report(settings: Settings | None = None) -> bool:
     line(OK if wh else OFF, "willhaben", "aktiv" if wh else "aus")
     # Die Auktions-Wache haengt an eBay UND an Marktpreisen: ohne
     # Vergleichswert kann sie nichts melden, und das soll man vorher sehen.
-    auction_ready = s.auction_watch_enabled and eb
     if not s.auction_watch_enabled:
         line(OFF, "Auktions-Wache", "aus (AUCTION_WATCH_ENABLED=false)")
     elif not eb:

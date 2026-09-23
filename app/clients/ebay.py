@@ -100,7 +100,6 @@ class EbayBrowseClient:
         serverseitig ueber itemEndDate, damit nicht tausende Auktionen
         durchgesehen werden muessen, von denen 99 Prozent noch Tage laufen.
         """
-        token = self._get_token()
         start = now or datetime.now(timezone.utc)
         end = start + timedelta(minutes=ending_within_minutes)
 

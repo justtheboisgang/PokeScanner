@@ -77,14 +77,24 @@ def run(limit: int = 150, show_titles: bool = False,
     hits: list[tuple[str, str]] = []           # (Titel, worauf aufgeloest)
 
     with session_scope() as session:
-        listings = session.scalars(
-            select(Listing).order_by(Listing.id.desc()).limit(limit)
-        ).all()
+        stmt = select(Listing).order_by(Listing.id.desc())
+        if limit > 0:
+            stmt = stmt.limit(limit)
+        listings = session.scalars(stmt).all()
         total = len(listings)
         if not total:
             print("Keine Inserate in der Datenbank.")
             return 0
-        print(f"\n=== Erkennungsquote ueber die letzten {total} Inserate ===")
+        # Der Id-Bereich gehoert in die Ausgabe: "die letzten 300" ist ein
+        # wanderndes Ziel. Zwischen zwei Laeufen kommen hunderte neue Inserate
+        # dazu, und dann vergleicht man zwei voellig verschiedene Stichproben
+        # und haelt den Unterschied faelschlich fuer eine Verbesserung oder
+        # eine Verschlechterung. Mit --alle ist die Zahl ueber die Zeit
+        # vergleichbar.
+        lo = min(listing.id for listing in listings)
+        hi = max(listing.id for listing in listings)
+        scope = "alle" if limit <= 0 else f"die letzten {total}"
+        print(f"\n=== Erkennungsquote ueber {scope} Inserate (Id {lo}-{hi}) ===")
         print("(kostenlos — es wird nur TCGdex gefragt)\n")
 
         for listing in listings:
@@ -146,11 +156,12 @@ def run(limit: int = 150, show_titles: bool = False,
             print(f"      -> {target}")
 
     if show_titles:
-        print("\nNicht erkannte Titel:")
-        for title, ok, reason in singles:
-            if not ok:
-                print(f"  - {title[:90]}")
-                print(f"      {reason}")
+        misses_list = [(t, r) for t, ok, r in singles if not ok]
+        shown = misses_list[:40]
+        print(f"\nNicht erkannte Titel ({len(shown)} von {len(misses_list)}):")
+        for title, reason in shown:
+            print(f"  - {title[:90]}")
+            print(f"      {reason}")
 
     print()
     return recognized
@@ -163,13 +174,16 @@ def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Erkennungsquote des Resolvers messen")
     parser.add_argument("--limit", type=int, default=150,
                         help="Wie viele Inserate pruefen (Default 150)")
+    parser.add_argument("--alle", action="store_true",
+                        help="ALLE gespeicherten Inserate pruefen — die einzige "
+                             "ueber die Zeit vergleichbare Zahl")
     parser.add_argument("--zeige-titel", action="store_true", dest="show_titles",
                         help="Jeden nicht erkannten Titel mit Grund auflisten")
     parser.add_argument("--zeige-treffer", action="store_true", dest="show_hits",
                         help="Zeigen, ALS WAS erkannt wurde (Gegenprobe zur Quote)")
     args = parser.parse_args(argv if argv is not None else sys.argv[1:])
-    run(limit=max(1, args.limit), show_titles=args.show_titles,
-        show_hits=args.show_hits)
+    run(limit=0 if args.alle else max(1, args.limit),
+        show_titles=args.show_titles, show_hits=args.show_hits)
 
 
 if __name__ == "__main__":

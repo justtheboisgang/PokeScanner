@@ -136,3 +136,28 @@ def test_hits_can_be_listed_for_a_spot_check(patched_scope, db, monkeypatch, cap
     out = capsys.readouterr().out
     assert "Erkannt als" in out
     assert "Glurak 4/102 [base1-4]" in out
+
+
+def test_the_measured_id_range_is_printed(patched_scope, db, monkeypatch, capsys):
+    """"Die letzten 300" wandert — ohne Id-Bereich vergleicht man Aepfel mit Birnen."""
+    _listing(db, "Glurak Holo 4/102 Base Set Deutsch", "r1")
+    _listing(db, "Turtok Holo 2/102 Base Set Deutsch", "r2")
+
+    monkeypatch.setattr(
+        "app.resolverstats.TCGdexClient", lambda *a, **kw: _tcgdex([])
+    )
+    run(limit=10)
+    out = capsys.readouterr().out
+    assert "(Id " in out and "-" in out
+
+
+def test_limit_zero_measures_every_listing(patched_scope, db, monkeypatch, capsys):
+    for i in range(5):
+        _listing(db, f"Glurak Holo 4/102 Base Set Nr {i}", f"a{i}")
+
+    monkeypatch.setattr(
+        "app.resolverstats.TCGdexClient", lambda *a, **kw: _tcgdex([])
+    )
+    run(limit=0)
+    out = capsys.readouterr().out
+    assert "ueber alle Inserate" in out

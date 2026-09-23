@@ -115,6 +115,15 @@ def run(limit: int = 5, dry_run: bool = False) -> None:
                     print(
                         f"    aufgelöst: {resolved.name} {resolved.number or ''}"
                     )
+                    # Auch der Erfolg gehoert in die Datenbank. Sonst steht im
+                    # Feed weiter nur "noch nicht bewertet", obwohl die Maschine
+                    # laengst weiss, WELCHE Karte das ist — und genau das ist
+                    # die Auskunft, die der Betreiber zuerst braucht.
+                    # valuation_attempted_at bleibt leer: bewertet wurde nichts.
+                    cand.valuation_note = (
+                        f"Erkannt als {resolved.name} {resolved.number or ''} — "
+                        "Wert noch nicht berechnet"
+                    )[:200]
                 else:
                     # Der Grund wird MITGESCHRIEBEN, obwohl das ein Trockenlauf
                     # ist: Auflösen kostet nichts, und danach erklärt der Feed

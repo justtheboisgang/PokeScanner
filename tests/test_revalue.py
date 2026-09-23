@@ -234,3 +234,30 @@ def test_discarding_auto_valuations_leaves_manual_work_alone(patched_scope, db):
     assert manual.estimated_profit == Decimal("20")
     remaining = db.query(CandidateCard).all()
     assert len(remaining) == 1 and remaining[0].source == "manual"
+
+
+def test_dry_run_also_records_what_it_recognized(patched_scope, db, monkeypatch,
+                                                 capsys):
+    """Der Trockenlauf haelt auch fest, WELCHE Karte erkannt wurde.
+
+    Sonst steht im Feed weiter "noch nicht bewertet", obwohl die Maschine die
+    Karte laengst kennt — die Auskunft, die der Betreiber zuerst braucht.
+    """
+    from app.models.enums import Language, Printing
+    from app.pricing.resolver import ResolvedCard
+
+    cand = _candidate(db, "Glurak 4/102 Holo Deutsch", ext="hit1")
+    monkeypatch.setattr(
+        "app.revalue.SingleCardTitleResolver.resolve",
+        lambda self, t, d, trace=None: ResolvedCard(
+            "base1-4", "Glurak", "4/102", Language.DE, Printing.HOLO
+        ),
+    )
+    run(limit=5, dry_run=True)
+
+    db.expire_all()
+    cand = db.get(Candidate, cand.id)
+    assert "Erkannt als Glurak 4/102" in cand.valuation_note
+    # Bewertet wurde nichts — das darf die Notiz nicht behaupten.
+    assert cand.valuation_attempted_at is None
+    assert cand.reference_value_id is None

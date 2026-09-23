@@ -1,110 +1,138 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, formatEuro } from "../api.js";
+import { api } from "../api.js";
 
-function VerdictBadge({ verdict }) {
-  if (!verdict) return null;
-  const styles = {
-    buy: "bg-emerald-600/20 text-emerald-300 ring-emerald-600/40",
-    skip: "bg-rose-600/20 text-rose-300 ring-rose-600/40",
-    unclear: "bg-amber-600/20 text-amber-300 ring-amber-600/40",
-  };
-  return (
-    <span className={`rounded px-1.5 py-0.5 text-[11px] font-medium ring-1 ${styles[verdict]}`}>
-      {verdict}
-    </span>
-  );
+/** Preis als Zahl — die Waehrung steht in der Spaltenueberschrift. */
+function num(value, digits = 2) {
+  if (value === null || value === undefined) return "—";
+  return Number(value).toLocaleString("de-DE", {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  });
 }
 
-function CascadeBadge({ item }) {
-  if (item.is_unbewertbar) {
-    // Zwei voellig verschiedene Zustaende, die vorher gleich aussahen:
-    // geprueft und nichts gefunden -- oder nie angefasst.
-    if (!item.valuation_attempted_at) {
-      return (
-        <span
-          className="rounded bg-slate-800 px-1.5 py-0.5 text-[11px] text-slate-400 ring-1 ring-slate-700"
-          title="Die Automatik hat diesen Kandidaten noch nicht angefasst."
-        >
-          noch nicht bewertet
-        </span>
-      );
-    }
+function ago(iso) {
+  if (!iso) return "—";
+  const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
+  if (s < 90) return `${Math.round(s)}s`;
+  if (s < 5400) return `${Math.round(s / 60)}m`;
+  if (s < 172800) return `${Math.round(s / 3600)}h`;
+  return `${Math.round(s / 86400)}d`;
+}
+
+// Der Wert-Status ist die wichtigste Spalte: er sagt, WORAUF eine Zahl beruht.
+// Deshalb bekommt er Farbe — und die Farbe bedeutet jedes Mal dasselbe.
+function Basis({ item }) {
+  if (!item.is_unbewertbar) {
+    const market = item.cascade_level === 4;
     return (
       <span
-        className="rounded bg-slate-700/60 px-1.5 py-0.5 text-[11px] text-slate-300"
-        title={item.valuation_note || "geprüft, kein Referenzwert ermittelbar"}
+        className={`font-mono text-2xs ${market ? "text-psychic" : "text-grass"}`}
+        title={
+          market
+            ? "Marktpreis — was verlangt wird, nicht was erzielt wurde"
+            : `Verkaufsdaten, Stufe ${item.cascade_level}, n=${item.sample_size}`
+        }
       >
-        unbewertbar{item.valuation_note ? " ⓘ" : ""}
+        {market ? "MARKT" : `SOLD·${item.cascade_level}`}
+        {!market && item.sample_size ? (
+          <span className="text-paper-dim"> n={item.sample_size}</span>
+        ) : null}
       </span>
     );
   }
-  // Stufe 4 kommt aus Marktpreisen, nicht aus Verkaeufen. "n=0 · schwach" sagt
-  // das nur fuer den, der die Kaskade kennt — hier steht es im Klartext.
-  if (item.cascade_level === 4) {
-    return (
-      <span
-        className="rounded bg-amber-600/20 px-1.5 py-0.5 text-[11px] text-amber-300 ring-1 ring-amber-600/40"
-        title="Angebotspreis am Markt, kein erzielter Verkaufspreis — nur eine Schätzung."
-      >
-        Marktpreis · geschätzt
-      </span>
-    );
-  }
+  if (!item.valuation_attempted_at)
+    return <span className="font-mono text-2xs text-paper-dim">OFFEN</span>;
   return (
-    <span className="rounded bg-indigo-600/20 px-1.5 py-0.5 text-[11px] text-indigo-300 ring-1 ring-indigo-600/40">
-      Stufe {item.cascade_level} · n={item.sample_size}
-      {item.is_weak ? " · schwach" : ""}
-    </span>
-  );
-}
-
-function Card({ item }) {
-  return (
-    <Link
-      to={`/candidates/${item.id}`}
-      className="group flex flex-col overflow-hidden rounded-xl border border-slate-800 bg-slate-900 transition hover:border-slate-700 hover:bg-slate-800/60"
+    <span
+      className="font-mono text-2xs text-paper-muted"
+      title={item.valuation_note || "geprüft, kein Wert ermittelbar"}
     >
-      <div className="aspect-video w-full overflow-hidden bg-slate-800">
+      KEIN WERT
+    </span>
+  );
+}
+
+function Verdict({ verdict }) {
+  if (!verdict) return null;
+  const tone = { buy: "text-grass", skip: "text-fire", unclear: "text-electric" }[
+    verdict
+  ];
+  return (
+    <span className={`font-mono text-2xs uppercase ${tone}`}>{verdict}</span>
+  );
+}
+
+function Row({ item }) {
+  const profit = item.estimated_profit;
+  const positive = profit != null && Number(profit) > 0;
+  return (
+    <tr className="group border-b border-ink-850 transition-colors hover:bg-ink-900">
+      <td className="py-2 pr-3 align-top">
+        <span className="tnum text-2xs text-paper-dim">
+          {ago(item.created_at)}
+        </span>
+      </td>
+      <td className="py-2 pr-3 align-top">
         {item.image ? (
           <img
             src={item.image}
             alt=""
             loading="lazy"
-            className="h-full w-full object-cover transition group-hover:scale-105"
+            className="h-9 w-9 rounded-sm object-cover ring-1 ring-ink-800"
           />
         ) : (
-          <div className="flex h-full items-center justify-center text-slate-600">
-            kein Bild
-          </div>
+          <div className="h-9 w-9 rounded-sm bg-ink-850 ring-1 ring-ink-800" />
         )}
-      </div>
-      <div className="flex flex-1 flex-col gap-2 p-3">
-        <div className="line-clamp-2 text-sm font-medium">{item.title}</div>
-        <div className="mt-auto flex flex-wrap items-center gap-2">
-          <span className="text-sm font-semibold text-slate-200">
-            {formatEuro(item.price, item.currency)}
-          </span>
-          <VerdictBadge verdict={item.verdict} />
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <CascadeBadge item={item} />
-          {item.estimated_profit != null && (
-            <span className="rounded bg-emerald-600/20 px-1.5 py-0.5 text-[11px] text-emerald-300">
-              +{formatEuro(item.estimated_profit)}
-            </span>
+      </td>
+      <td className="max-w-0 py-2 pr-4 align-top">
+        <Link
+          to={`/candidates/${item.id}`}
+          className="block truncate text-sm text-paper transition-colors group-hover:text-water"
+        >
+          {item.title}
+        </Link>
+        <div className="mt-0.5 truncate text-2xs text-paper-dim">
+          {item.location || "—"}
+          <span className="mx-1.5 text-ink-600">/</span>
+          {item.matched_search_term || "—"}
+          {item.is_unbewertbar && item.valuation_note && (
+            <>
+              <span className="mx-1.5 text-ink-600">/</span>
+              <span className="text-paper-muted">{item.valuation_note}</span>
+            </>
           )}
         </div>
-        {item.is_unbewertbar && item.valuation_note && (
-          <div className="line-clamp-2 text-[11px] text-slate-500">
-            {item.valuation_note}
-          </div>
+      </td>
+      <td className="whitespace-nowrap py-2 pr-4 align-top">
+        <span className="font-mono text-2xs uppercase tracking-wider text-paper-dim">
+          {item.channel.replace("_", " ")}
+        </span>
+      </td>
+      <td className="whitespace-nowrap py-2 pr-4 text-right align-top">
+        <span className="tnum text-sm text-paper">{num(item.price)}</span>
+      </td>
+      <td className="whitespace-nowrap py-2 pr-4 text-right align-top">
+        <Basis item={item} />
+      </td>
+      <td className="whitespace-nowrap py-2 pr-4 text-right align-top">
+        {profit == null ? (
+          <span className="tnum text-sm text-paper-dim">—</span>
+        ) : (
+          <span
+            className={`tnum text-sm font-medium ${
+              positive ? "text-grass" : "text-fire"
+            }`}
+          >
+            {positive ? "+" : "−"}
+            {num(Math.abs(Number(profit)))}
+          </span>
         )}
-        <div className="truncate text-xs text-slate-500">
-          {item.location || "—"} · {item.matched_search_term || "—"}
-        </div>
-      </div>
-    </Link>
+      </td>
+      <td className="whitespace-nowrap py-2 text-right align-top">
+        <Verdict verdict={item.verdict} />
+      </td>
+    </tr>
   );
 }
 
@@ -123,33 +151,91 @@ export default function LiveFeed() {
       .finally(() => setLoading(false));
   }, [undecidedOnly]);
 
+  const valued = items.filter((i) => !i.is_unbewertbar).length;
+  const open = items.filter((i) => !i.valuation_attempted_at && i.is_unbewertbar)
+    .length;
+
   return (
     <div>
-      <div className="mb-4 flex items-center justify-between">
-        <h1 className="text-xl font-semibold">Live Feed</h1>
-        <label className="flex items-center gap-2 text-sm text-slate-300">
+      <div className="mb-4 flex items-baseline gap-6">
+        <h1 className="text-lg font-semibold tracking-tight">Live Feed</h1>
+        {/* Kennzahlen als Zeile, nicht als Kachelwand: drei Zahlen brauchen
+            keine drei Kaesten. */}
+        <div className="flex gap-5 font-mono text-2xs uppercase tracking-wider text-paper-dim">
+          <span>
+            {items.length} <span className="text-ink-600">Funde</span>
+          </span>
+          <span className="text-grass">
+            {valued} <span className="text-ink-600">bewertet</span>
+          </span>
+          <span>
+            {open} <span className="text-ink-600">offen</span>
+          </span>
+        </div>
+        <label className="ml-auto flex cursor-pointer items-center gap-2 text-xs text-paper-muted hover:text-paper">
           <input
             type="checkbox"
             checked={undecidedOnly}
             onChange={(e) => setUndecidedOnly(e.target.checked)}
-            className="h-4 w-4 rounded border-slate-600 bg-slate-800"
+            className="h-3.5 w-3.5 rounded-sm border-ink-600 bg-ink-850 accent-water"
           />
           nur unentschieden
         </label>
       </div>
 
-      {error && <p className="text-rose-400">Fehler: {error}</p>}
-      {loading ? (
-        <p className="text-slate-400">lädt…</p>
-      ) : items.length === 0 ? (
-        <p className="text-slate-400">Noch keine Kandidaten.</p>
-      ) : (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {items.map((item) => (
-            <Card key={item.id} item={item} />
-          ))}
-        </div>
-      )}
+      {error && <p className="text-fire">Fehler: {error}</p>}
+
+      <div className="overflow-x-auto">
+        <table className="w-full table-fixed border-collapse">
+          <colgroup>
+            <col className="w-12" />
+            <col className="w-12" />
+            <col />
+            <col className="w-28" />
+            <col className="w-24" />
+            <col className="w-28" />
+            <col className="w-24" />
+            <col className="w-16" />
+          </colgroup>
+          <thead>
+            <tr className="border-b border-ink-700">
+              <th className="colhead py-2 pr-3 text-left">Alter</th>
+              <th className="colhead py-2 pr-3 text-left" />
+              <th className="colhead py-2 pr-4 text-left">Angebot</th>
+              <th className="colhead py-2 pr-4 text-left">Quelle</th>
+              <th className="colhead py-2 pr-4 text-right">Preis €</th>
+              <th className="colhead py-2 pr-4 text-right">Basis</th>
+              <th className="colhead py-2 pr-4 text-right">Gewinn €</th>
+              <th className="colhead py-2 text-right">Urteil</th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? (
+              <tr>
+                <td colSpan={8} className="py-8 text-center text-sm text-paper-dim">
+                  lädt…
+                </td>
+              </tr>
+            ) : items.length === 0 ? (
+              <tr>
+                <td colSpan={8} className="py-8 text-center text-sm text-paper-dim">
+                  Noch keine Kandidaten.
+                </td>
+              </tr>
+            ) : (
+              items.map((item) => <Row key={item.id} item={item} />)
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      <p className="mt-4 text-2xs text-paper-dim">
+        <span className="text-grass">SOLD·n</span> = echte Verkaufspreise ·{" "}
+        <span className="text-psychic">MARKT</span> = Angebotspreis, nur eine
+        Schätzung · <span className="text-paper-muted">KEIN WERT</span> = geprüft,
+        nichts ermittelbar · <span className="text-paper-dim">OFFEN</span> = noch
+        nicht geprüft. Versandkosten sind in keiner Zahl enthalten.
+      </p>
     </div>
   );
 }

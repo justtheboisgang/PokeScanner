@@ -1,3 +1,5 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap");
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -7,5 +9,24 @@
 }
 
 body {
-  @apply bg-slate-950 text-slate-100 antialiased;
+  @apply bg-ink-950 text-paper antialiased;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+}
+
+/* Zahlen laufen immer tabellarisch: gleiche Breite je Ziffer, damit Spalten
+   stehen. Ohne das "zappeln" Preise beim Aktualisieren. */
+.tnum {
+  font-variant-numeric: tabular-nums;
+  @apply font-mono;
+}
+
+/* Eine feine Linie statt Schatten. Karten mit Schlagschatten sind das
+   sicherste Erkennungsmerkmal einer Baukasten-Oberflaeche. */
+.rule {
+  @apply border-b border-ink-800;
+}
+
+/* Spaltenkoepfe: klein, weit gesperrt, leise. */
+.colhead {
+  @apply text-2xs font-medium uppercase tracking-widest text-paper-dim;
 }

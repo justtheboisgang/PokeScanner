@@ -53,7 +53,12 @@ class NullResolver:
 # are caught too ("Pokemon-Kartensammlung"). "sammel" is deliberately NOT here:
 # "Sammelkarte" is the ordinary German word for a SINGLE trading card, and
 # blocking on it threw away exactly the single-card listings we want.
-_BUNDLE_SUBSTRINGS = ("konvolut", "sammlung", "kiloware", "sortiment")
+_BUNDLE_SUBSTRINGS = (
+    "konvolut", "sammlung", "kiloware", "sortiment", "auflösung", "aufloesung",
+    # Plural: "Pokemon Einzelkarten / Sammelauflösung" ist eine Auswahl, keine
+    # bestimmte Karte. Der Singular "Einzelkarte" bleibt erlaubt.
+    "einzelkarten",
+)
 
 # Short or ambiguous words — whole words only, so they cannot fire inside an
 # unrelated word.
@@ -138,8 +143,16 @@ class CardNumber:
 
 
 def extract_card_number(text: str) -> CardNumber | None:
-    m = _NUMBER_PAIR_RE.search(text)
-    if m:
+    pairs = list(_NUMBER_PAIR_RE.finditer(text))
+    if pairs:
+        # Mehrere Paare im Titel? Dann gewinnt der groesste Nenner. Aus
+        # "30 Jahre - Pikachu (11/30) - 033/128" ist 033/128 die Kartennummer;
+        # (11/30) zaehlt nur die Serie. Das linkeste Paar zu nehmen holte
+        # bisher zuverlaessig das falsche.
+        def denominator(m: re.Match) -> int:
+            return int(m.group(4))
+
+        m = max(pairs, key=denominator)
         left_prefix, left, right_prefix, right = m.groups()
         token = f"{(left_prefix or '').upper()}{left}"
         # Der Nenner taugt nur dann zum Eingrenzen, wenn er die Set-Groesse ist.
@@ -204,24 +217,50 @@ _REPRINT_WORDS = re.compile(
 # falsch: sie sind gar keine. Diese Pruefung greift NUR, wenn im Titel keine
 # Kartennummer steht; "Glurak 4/102 aus Booster gezogen" bleibt eine Karte.
 _PRODUCT_SUBSTRINGS = (
-    "display", "booster", "elite trainer", "trainer box", "blister", "tin ",
-    "sammelalbum", "portfolio", "toploader", "sleeve", "huelle", "hülle",
-    "schutzhuelle", "schutzhülle", "muenze", "münze", "coin", "charm",
-    "plüsch", "pluesch", "figur", "spielkonsole", "game boy", "gameboy",
-    "nintendo", "poster", "sticker", "schluesselanhaenger", "schlüsselanhänger",
-    "geldboerse", "geldbörse", "rucksack", "puzzle", "brettspiel",
+    # Versiegelte Ware
+    "display", "booster", "elite trainer", "trainer box", "deckbox", "duopack",
+    "blister", "tin ", "sealed", "premium kollektion", "premium collection",
+    "kollektion", "sammelalbum", "portfolio",
+    # Zubehoer
+    "toploader", "sleeve", "huelle", "hülle", "schutzhuelle", "schutzhülle",
+    "protektor", "acryl case", "binder",
+    # Merchandise, das ueber dieselben Suchbegriffe mitlaeuft
+    "muenze", "münze", "coin", "charm", "plüsch", "pluesch", "figur",
+    "spielset", "spielkonsole", "game boy", "gameboy", "nintendo", "poster",
+    "sticker", "teppich", "trinkflasche", "wasserflasche", "tasse", "kissen",
+    "schluesselanhaenger", "schlüsselanhänger", "geldboerse", "geldbörse",
+    "rucksack", "puzzle", "brettspiel",
+    # Fantasieprodukte: Metall- und Goldkarten sind keine Sammelkarten
+    "metallkarte", "metall karte", "metal card", "goldkarte", "gold optik",
+    # "Such dir was aus" — kein bestimmtes Angebot
+    "zur auswahl", "wähle", "waehle", "aussuchen", "auswählen", "auswaehlen",
+    "was du willst", "karte wählen", "karte waehlen",
 )
 _PRODUCT_WORDS = re.compile(
-    r"\b(?:etb|tin|pack|packung|päckchen|paeckchen|box|boxen|tüte|tuete|"
-    r"tüten|tueten|umschlag|umschläge|spiel|spiele|kissen|tasse)\b",
+    r"\b(?:etb|ttb|upc|tin|pack|packung|päckchen|paeckchen|box|boxen|tüte|"
+    r"tuete|tüten|tueten|umschlag|umschläge|spiel|spiele)\b",
+    re.IGNORECASE,
+)
+# Mengenangaben: "50 Karten", "3er Set", "9 Booster", "Karten Set". Ein
+# bestimmtes Angebot nennt keine Stueckzahl.
+_QUANTITY_RE = re.compile(
+    r"\b\d{1,4}\s*(?:er)?[\s-]?(?:karten|cards|booster|stück|stueck)\b|"
+    r"\b(?:karten|cards)[\s-]?set\b",
     re.IGNORECASE,
 )
 
 
+def _flatten(text: str) -> str:
+    """Bindestriche zu Leerzeichen: "Top-Trainer-Box" -> "top trainer box"."""
+    return re.sub(r"[-_/|]+", " ", text.lower())
+
+
 def looks_like_sealed_product(text: str) -> bool:
-    low = text.lower()
-    return any(h in low for h in _PRODUCT_SUBSTRINGS) or bool(
-        _PRODUCT_WORDS.search(text)
+    low = _flatten(text)
+    return (
+        any(h in low for h in _PRODUCT_SUBSTRINGS)
+        or bool(_PRODUCT_WORDS.search(low))
+        or bool(_QUANTITY_RE.search(low))
     )
 
 
@@ -350,6 +389,84 @@ class SingleCardTitleResolver:
         self.lang = lang
         self.max_searches = max_searches
 
+    def _set_name_index(self, lang_code: str) -> list[tuple[str, str]]:
+        """(Set-Name in Kleinschreibung, Set-Id), laengste Namen zuerst.
+
+        Damit "Expedition Base Set" vor "Base Set" gewinnt — sonst landet ein
+        Expedition-Titel beim Base Set und bekommt einen voellig falschen Wert.
+        """
+        try:
+            sets = self.tcgdex.get_sets(lang_code)
+        except Exception:
+            logger.debug("tcgdex set list unavailable", exc_info=True)
+            return []
+        index: list[tuple[str, str]] = []
+        for item in sets:
+            name = str(item.get("name") or "").strip().lower()
+            set_id = item.get("id")
+            # Kurze Namen wie "EX" oder "Go" stecken in zu vielen Titeln.
+            if set_id and len(name) >= 5:
+                index.append((name, str(set_id)))
+        index.sort(key=lambda pair: len(pair[0]), reverse=True)
+        return index
+
+    def _resolve_via_set_name(
+        self, text: str, low: str, note
+    ) -> tuple[dict, str] | None:
+        """Ohne Nummer, aber mit Set im Titel: "Kabuto Fossil 1. Edition".
+
+        Das ist eindeutig, weil Fossil genau ein Kabuto enthaelt — nachgesehen
+        wird in der Kartenliste des Sets, nicht geraten. Bleiben mehrere Karten
+        uebrig, bleibt es unbewertbar.
+        """
+        flat = _flatten(text)
+        for lang_code in dict.fromkeys([self.lang.value.lower(), "en"]):
+            found = [
+                (name, set_id)
+                for name, set_id in self._set_name_index(lang_code)
+                if name in flat
+            ]
+            # Namen, die in einem laengeren Treffer stecken, zaehlen nicht
+            # doppelt ("Base Set" in "Expedition Base Set").
+            distinct = [
+                (name, set_id)
+                for name, set_id in found
+                if not any(name != other and name in other for other, _ in found)
+            ]
+            if len(distinct) > 1:
+                # Mehrere Sets im Titel — genau der Fall, in dem ein Wert
+                # erfunden waere. "Expansion Base Set Expedition" ist Base Set
+                # ODER Expedition, und die unterscheiden sich im Wert um ein
+                # Vielfaches.
+                note(
+                    "  mehrere Sets im Titel ("
+                    + ", ".join(n for n, _ in distinct[:3])
+                    + ") -> nicht aufloesbar"
+                )
+                continue
+            for set_name, set_id in distinct:
+                try:
+                    data = self.tcgdex.get_set(set_id, lang_code)
+                except Exception:
+                    logger.debug("tcgdex set %s unavailable", set_id, exc_info=True)
+                    continue
+                cards = (data or {}).get("cards") or []
+                hits = [
+                    c
+                    for c in cards
+                    if c.get("id") and _name_in_title(str(c.get("name") or ""), low)
+                ]
+                note(
+                    f"  Set '{set_name}' im Titel erkannt ({set_id}, "
+                    f"{len(cards)} Karten): {len(hits)} Namenstreffer"
+                )
+                if len(hits) == 1:
+                    return hits[0], lang_code
+                if hits:
+                    # Mehrere Karten des Sets passen — nicht raten.
+                    return None
+        return None
+
     def _set_sizes(self, lang_code: str) -> dict[str, int]:
         try:
             return self.tcgdex.set_sizes(lang_code)
@@ -393,11 +510,28 @@ class SingleCardTitleResolver:
                     "Tor 1b: kein Einzelkarten-Angebot (Zubehör oder versiegelte "
                     "Ware) -> unbewertbar"
                 )
-            else:
-                note(
-                    "Tor 1b: keine Kartennummer im Titel (z.B. 4/102, TG06/TG30, "
-                    "DP45) -> unbewertbar"
+                return None
+            # Zweiter Weg: viele Titel nennen statt der Nummer das Set —
+            # "Kabuto Fossil German 1. Edition". Wenn das Set genau eine Karte
+            # dieses Namens hat, ist der Titel genauso eindeutig wie mit Nummer.
+            via_set = self._resolve_via_set_name(text, low, note)
+            if via_set is not None:
+                card, found_lang = via_set
+                note(f"Über den Set-Namen aufgelöst: {card.get('name')} ({card['id']})")
+                language = _language_from_title(low, self.lang)
+                if found_lang == "en" and not _says_german(low):
+                    language = Language.EN
+                return ResolvedCard(
+                    tcgdex_id=str(card["id"]),
+                    name=str(card.get("name")),
+                    number=card_local_id(card),
+                    language=language,
+                    printing=_printing_from_title(low),
                 )
+            note(
+                "Tor 1b: keine Kartennummer und kein erkennbares Set im Titel "
+                "-> unbewertbar"
+            )
             return None
         local_id = number.token
         set_size = number.set_size

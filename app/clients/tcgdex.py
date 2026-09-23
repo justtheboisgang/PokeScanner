@@ -77,6 +77,7 @@ class TCGdexClient:
             base_url=self.base_url, transport=transport, timeout=timeout
         )
         self._sets_cache: dict[str, list[dict]] = {}
+        self._set_cache: dict[str, dict] = {}
 
     def __enter__(self) -> "TCGdexClient":
         return self
@@ -146,6 +147,28 @@ class TCGdexClient:
             if set_id and isinstance(count, int) and count > 0:
                 sizes[str(set_id)] = count
         return sizes
+
+    def get_set(self, set_id: str, lang: str | None = None) -> dict | None:
+        """One set WITH its card list. Cached — Sets aendern sich praktisch nie.
+
+        Gebraucht fuer Titel, die ihr Set im Klartext nennen statt die Nummer:
+        "Kabuto Fossil 1. Edition" ist eindeutig, weil Fossil genau ein Kabuto
+        hat — aber das weiss man erst, wenn man die Kartenliste des Sets kennt.
+        """
+        lang = lang or self.primary_lang
+        key = f"{lang}/{set_id}"
+        cached = self._set_cache.get(key)
+        if cached is not None:
+            return cached
+        resp = self._client.get(f"/{lang}/sets/{set_id}")
+        if resp.status_code == 404:
+            return None
+        resp.raise_for_status()
+        data = resp.json()
+        if not isinstance(data, dict):
+            return None
+        self._set_cache[key] = data
+        return data
 
     def get_card(self, card_id: str, lang: str | None = None) -> dict | None:
         """Fetch one card. Returns None on 404 (card not in that language)."""

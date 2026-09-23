@@ -89,16 +89,18 @@ def test_bundle_keyword_blocks_resolution():
     assert called["n"] == 0  # short-circuits before any TCGdex call
 
 
-def test_missing_number_blocks_resolution():
-    called = {"n": 0}
+def test_missing_number_and_unknown_set_blocks_resolution():
+    """Ohne Nummer wird das Set gesucht — findet sich keins, bleibt es dabei.
 
-    def handler(request: httpx.Request) -> httpx.Response:  # pragma: no cover
-        called["n"] += 1
+    Frueher endete der Resolver hier sofort und ohne jede Anfrage. Seit Titel
+    auch ueber den Set-Namen aufgeloest werden, darf er nachsehen — ergebnislos
+    heisst aber weiterhin: unbewertbar.
+    """
+    def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json=[])
 
     r = SingleCardTitleResolver(_tcgdex(handler))
-    assert r.resolve("Glurak Holo Base Set", None) is None
-    assert called["n"] == 0
+    assert r.resolve("Glurak Holo irgendwas", None) is None
 
 
 def test_english_and_first_edition_flags():
@@ -776,3 +778,140 @@ def test_suffixes_do_not_block_the_name_match():
     resolved = resolver.resolve("Pokémon TCG Turtok-EX 009/165 Holo Deutsch", None)
     assert resolved is not None
     assert resolved.tcgdex_id == "sv3-9"
+
+
+# --- Titel ohne Nummer, aber mit Set-Namen ---------------------------------
+#
+# Groesste Gruppe der echten Fehlschlaege (aus 300 gemessenen Inseraten):
+# "Pokemon Karte Card Kabuto Fossil German Deutsch 1. Edition CGC 8.5".
+# Keine Nummer — aber Fossil hat genau ein Kabuto, also ist der Titel genauso
+# eindeutig wie mit Nummer.
+
+
+def _set_handler(sets, cards_by_set):
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        for set_id, cards in cards_by_set.items():
+            if path.endswith(f"/sets/{set_id}"):
+                return httpx.Response(200, json={"id": set_id, "cards": cards})
+        if path.endswith("/sets"):
+            return httpx.Response(200, json=sets)
+        return httpx.Response(200, json=[])
+
+    return handler
+
+
+def test_resolves_by_set_name_when_the_title_has_no_number():
+    sets = [{"id": "fossil", "name": "Fossil", "cardCount": {"official": 62}}]
+    cards = {
+        "fossil": [
+            {"id": "fossil-50", "localId": "50", "name": "Kabuto"},
+            {"id": "fossil-9", "localId": "9", "name": "Muschas"},
+        ]
+    }
+    r = SingleCardTitleResolver(_tcgdex(_set_handler(sets, cards)))
+    trace: list[str] = []
+    resolved = r.resolve(
+        "Pokemon Karte Card Kabuto Fossil German Deutsch 1. Edition CGC 8.5",
+        None,
+        trace=trace,
+    )
+    assert resolved is not None, trace
+    assert resolved.tcgdex_id == "fossil-50"
+    assert resolved.number == "50"
+    assert resolved.language == Language.DE
+
+
+def test_set_name_path_stays_silent_when_several_cards_fit():
+    """Zwei Karten des Sets im Titel -> nicht raten."""
+    sets = [{"id": "jungle", "name": "Dschungel", "cardCount": {"official": 64}}]
+    cards = {
+        "jungle": [
+            {"id": "jungle-40", "localId": "40", "name": "Mauzi"},
+            {"id": "jungle-26", "localId": "26", "name": "Rizeros"},
+        ]
+    }
+    r = SingleCardTitleResolver(_tcgdex(_set_handler(sets, cards)))
+    assert r.resolve("Pokemon Mauzi und Rizeros Dschungel 1. Edition", None) is None
+
+
+def test_two_set_names_in_one_title_stay_unbewertbar():
+    """Echter Titel aus dem Feed: "Expansion Base Set Expedition".
+
+    Base Set ODER Expedition — der Wert unterscheidet sich um ein Vielfaches.
+    Genau hier waere ein automatischer Wert erfunden, also: Finger weg.
+    """
+    sets = [
+        {"id": "base1", "name": "Base Set", "cardCount": {"official": 102}},
+        {"id": "ecard1", "name": "Expedition", "cardCount": {"official": 165}},
+    ]
+    cards = {
+        "base1": [{"id": "base1-58", "localId": "58", "name": "Ponita"}],
+        "ecard1": [{"id": "ecard1-121", "localId": "121", "name": "Ponita"}],
+    }
+    r = SingleCardTitleResolver(_tcgdex(_set_handler(sets, cards)))
+    trace: list[str] = []
+    assert r.resolve(
+        "Pokemon Karte Card Ponyta Ponita Expansion Base Set Expedition japanese",
+        None,
+        trace=trace,
+    ) is None
+    assert any("mehrere Sets" in line for line in trace), trace
+
+
+def test_a_longer_set_name_absorbs_the_shorter_one():
+    """"Expedition Base Set" enthaelt "Base Set" — das ist EIN Set, nicht zwei."""
+    sets = [
+        {"id": "base1", "name": "Base Set", "cardCount": {"official": 102}},
+        {"id": "ecard1", "name": "Expedition Base Set", "cardCount": {"official": 165}},
+    ]
+    cards = {
+        "base1": [{"id": "base1-58", "localId": "58", "name": "Ponita"}],
+        "ecard1": [{"id": "ecard1-121", "localId": "121", "name": "Ponita"}],
+    }
+    r = SingleCardTitleResolver(_tcgdex(_set_handler(sets, cards)))
+    resolved = r.resolve("Pokemon Karte Ponita Expedition Base Set japanese", None)
+    assert resolved is not None
+    assert resolved.tcgdex_id == "ecard1-121"
+
+
+# --- Was gar keine Karte ist ------------------------------------------------
+
+
+def test_accessories_and_sealed_products_are_recognized():
+    """Echte Titel aus dem Feed, die keine Einzelkarte sind."""
+    from app.pricing.resolver import looks_like_sealed_product
+
+    for title in (
+        "Pokemon Strahlende Funken Sealed Box",
+        "Pokémon TCG Champion's Path Elite Trainer Box Charizard Sealed 2020",
+        "Pokémon unvollständig Top-Trainer-Box Mega-Entwicklung Fatale Flammen DE",
+        "Pokemon Teppich 80cm Turtok Pikachu Anime Manga Gamer Deko",
+        "Pokémon Trinkflasche Wasserflasche mit Strohhalm Kinder Pikachu 420ml",
+        "Pokemon Metallkarte | Psiana- Gold Optik",
+        "Pokemon Mega Charizard UPC Ultra Premium Collection OVP Acryl Case",
+        "Pokemon Karten Ectoplasma Gengar zur Auswahl / DE KR JP EN",
+        "Pokemon Karten Set 50 Offiziell Neu",
+        "Pokémon Battle Ready Deluxe Action Figuren Spielset Pikachu",
+    ):
+        assert looks_like_sealed_product(title) is True, title
+
+
+def test_real_cards_are_not_mistaken_for_products():
+    from app.pricing.resolver import looks_like_bundle, looks_like_sealed_product
+
+    for title in (
+        "Pokemon Karte Card Kabuto Fossil German Deutsch 1. Edition CGC 8.5",
+        "Pokemon Karte Card Mauzi Meowth Jungle Dschungel Deutsch 1. Edition",
+        "Pokémon TCG M Glurak EX Holo Deutsch 220 KP MEGA EX Sammelkarte",
+        "POKEMON EVOLUTIONS MEGA VENUSAUR BISAFLOR EX BECKETT 9 MINT",
+    ):
+        assert looks_like_bundle(title) is False, title
+        assert looks_like_sealed_product(title) is False, title
+
+
+def test_a_card_number_outranks_a_product_word():
+    """"Aus Booster gezogen" bleibt eine Karte — die Nummer entscheidet."""
+    cards = [{"id": "base1-4", "localId": "4", "name": "Glurak"}]
+    r = SingleCardTitleResolver(_tcgdex(_one_card_handler(cards)))
+    assert r.resolve("Glurak 4/102 Holo Deutsch aus Booster gezogen", None) is not None

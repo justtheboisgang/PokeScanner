@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import base64
 import time
+from datetime import datetime, timedelta, timezone
 
 import httpx
 
@@ -75,6 +76,92 @@ class EbayBrowseClient:
         # Refresh 60s before the stated expiry.
         self._token_expiry = self._monotonic() + float(body.get("expires_in", 7200)) - 60
         return self._token
+
+    def _filters(self, extra: list[str] | None = None) -> str | None:
+        parts = list(extra or [])
+        if self.location_countries:
+            parts.append(
+                "itemLocationCountry:{" + "|".join(self.location_countries) + "}"
+            )
+        return ",".join(parts) if parts else None
+
+    def search_auctions(
+        self,
+        query: str,
+        *,
+        ending_within_minutes: int,
+        limit: int = 50,
+        now: datetime | None = None,
+    ) -> list[dict]:
+        """Laufende AUKTIONEN, die bald enden.
+
+        Der Zeitfilter ist der Kern: eine Auktion ist erst kurz vor Schluss
+        interessant, weil der Preis bis dahin steigt. eBay filtert das
+        serverseitig ueber itemEndDate, damit nicht tausende Auktionen
+        durchgesehen werden muessen, von denen 99 Prozent noch Tage laufen.
+        """
+        token = self._get_token()
+        start = now or datetime.now(timezone.utc)
+        end = start + timedelta(minutes=ending_within_minutes)
+
+        def stamp(value: datetime) -> str:
+            return value.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+
+        params: dict[str, object] = {
+            "q": query,
+            "limit": limit,
+            # Nach Restlaufzeit sortiert: was zuerst endet, steht vorn.
+            "sort": "endingSoonest",
+            "filter": self._filters(
+                [
+                    "buyingOptions:{AUCTION}",
+                    f"itemEndDate:[{stamp(start)}..{stamp(end)}]",
+                ]
+            ),
+        }
+        return self._search(params)
+
+    def get_item(self, item_id: str) -> dict | None:
+        """Ein einzelnes Angebot frisch abrufen — fuer den aktuellen Gebotsstand.
+
+        Kurz vor Schluss zaehlt nur der Preis von JETZT; der aus der Suche von
+        vor vierzig Minuten ist wertlos.
+        """
+        token = self._get_token()
+        resp = self._client.get(
+            f"{self.base_url}/buy/browse/v1/item/{item_id}",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "X-EBAY-C-MARKETPLACE-ID": self.marketplace,
+            },
+        )
+        if resp.status_code == 404:
+            return None
+        if resp.status_code == 429:
+            raise RateLimitError("eBay rate limited")
+        if resp.status_code == 403:
+            raise QuotaExceededError("eBay Browse quota/permission error (403)")
+        resp.raise_for_status()
+        body = resp.json()
+        return body if isinstance(body, dict) else None
+
+    def _search(self, params: dict) -> list[dict]:
+        token = self._get_token()
+        resp = self._client.get(
+            f"{self.base_url}/buy/browse/v1/item_summary/search",
+            params={k: v for k, v in params.items() if v is not None},
+            headers={
+                "Authorization": f"Bearer {token}",
+                "X-EBAY-C-MARKETPLACE-ID": self.marketplace,
+            },
+        )
+        if resp.status_code == 429:
+            raise RateLimitError("eBay rate limited")
+        if resp.status_code == 403:
+            raise QuotaExceededError("eBay Browse quota/permission error (403)")
+        resp.raise_for_status()
+        body = resp.json()
+        return list(body.get("itemSummaries") or [])
 
     def search_active(
         self, query: str, *, limit: int = 50, sort: str | None = None

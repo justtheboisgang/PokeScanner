@@ -41,6 +41,38 @@ def _resolver(settings) -> SingleCardTitleResolver:
     return SingleCardTitleResolver(TCGdexClient(), lang=lang)
 
 
+def discard_auto_valuations() -> int:
+    """Automatische Bewertungen verwerfen, damit sie neu gerechnet werden.
+
+    Noetig nach jeder Aenderung am Resolver: bestehende Werte bleiben sonst
+    fuer immer stehen, auch wenn sie auf einer inzwischen korrigierten
+    Aufloesung beruhen — im Feed stand so noch tagelang ein "Turtok EX XY122"
+    mit dem Wert eines voellig anderen Karte.
+
+    Von HAND identifizierte Karten bleiben unberuehrt. Die sind Arbeit des
+    Betreibers und werden nicht von der Maschine weggeworfen.
+    """
+    from app.models.candidate_card import CandidateCard
+
+    touched = 0
+    with session_scope() as session:
+        auto_links = session.scalars(
+            select(CandidateCard).where(CandidateCard.source == "auto")
+        ).all()
+        auto_ids = {link.candidate_id for link in auto_links}
+        for link in auto_links:
+            session.delete(link)
+        for cand in session.scalars(
+            select(Candidate).where(Candidate.id.in_(auto_ids) if auto_ids else False)
+        ).all():
+            cand.reference_value_id = None
+            cand.estimated_profit = None
+            cand.valuation_attempted_at = None
+            cand.valuation_note = None
+            touched += 1
+    return touched
+
+
 def run(limit: int = 5, dry_run: bool = False) -> None:
     settings = get_settings()
     resolver = _resolver(settings)
@@ -185,7 +217,19 @@ def main(argv: list[str] | None = None) -> None:
         "--dry-run", action="store_true",
         help="Nur auflösen, nichts bewerten (kostenlos)",
     )
+    parser.add_argument(
+        "--verwerfen", action="store_true",
+        help="Alle AUTOMATISCHEN Bewertungen löschen, damit sie neu gerechnet "
+             "werden (Handarbeit bleibt unberührt)",
+    )
     args = parser.parse_args(argv if argv is not None else sys.argv[1:])
+    if args.verwerfen:
+        count = discard_auto_valuations()
+        print(f"\n{count} automatische Bewertungen verworfen.")
+        print("Sie werden beim nächsten Lauf neu gerechnet:")
+        print("  python -m app.revalue --dry-run --limit 300   (kostenlos)")
+        print("  python -m app.revalue --limit 20              (kostet Geld)\n")
+        return
     run(limit=max(1, args.limit), dry_run=args.dry_run)
 
 

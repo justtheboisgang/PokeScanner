@@ -16,6 +16,7 @@ from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from app.alerts.discord import DiscordNotifier
+from app.auctions import AuctionWatcher
 from app.config import Settings, get_settings
 from app.health import HealthMonitor
 from app.ingest.pipeline import build_pipeline
@@ -65,6 +66,27 @@ def run() -> None:
     scheduler.add_job(pipeline.poll, day_trigger, id="poll_day", max_instances=1)
     scheduler.add_job(pipeline.poll, night_trigger, id="poll_night", max_instances=1)
 
+    # Auktions-Wache: zwei Takte, weil beide Haelften verschiedene
+    # Anforderungen haben. Das Suchen darf dauern, das Pruefen kurz vor
+    # Ablauf nicht — und eine Meldung, die zwei Minuten zu spaet kommt, ist
+    # wertlos, deshalb laeuft der Pruef-Takt minuetlich.
+    if settings.auction_watch_enabled and settings.ebay_browse_enabled:
+        watcher = AuctionWatcher(settings=settings)
+        scheduler.add_job(
+            watcher.scan,
+            CronTrigger(
+                minute=_minute_spec(settings.auction_scan_interval_minutes), timezone=tz
+            ),
+            id="auction_scan",
+            max_instances=1,
+        )
+        scheduler.add_job(
+            watcher.tick,
+            CronTrigger(minute="*", timezone=tz),
+            id="auction_tick",
+            max_instances=1,
+        )
+
     # Health check (Block 4): stündlich prüfen, ob überhaupt noch gescannt wird.
     if settings.health_check_enabled:
         monitor = HealthMonitor(DiscordNotifier(), settings=settings)
@@ -77,7 +99,7 @@ def run() -> None:
 
     logger.info(
         "scheduler starting (tz=%s, day %02d:00-%02d:00 every %dm, night every %dm, "
-        "health check %s)",
+        "health check %s, Auktions-Wache %s)",
         settings.scheduler_timezone,
         settings.poll_day_start_hour,
         settings.poll_day_end_hour,
@@ -86,6 +108,11 @@ def run() -> None:
         f"after {settings.health_max_silence_hours}h silence"
         if settings.health_check_enabled
         else "off",
+        f"{settings.auction_window_minutes}min-Fenster, Alarm "
+        f"{settings.auction_alert_lead_minutes}min vor Schluss ab "
+        f"{settings.auction_min_discount_pct}% Abstand"
+        if settings.auction_watch_enabled and settings.ebay_browse_enabled
+        else "aus",
     )
     try:
         scheduler.start()

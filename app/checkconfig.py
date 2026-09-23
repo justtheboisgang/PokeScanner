@@ -111,6 +111,21 @@ def report(settings: Settings | None = None) -> bool:
         ),
     )
     line(OK if wh else OFF, "willhaben", "aktiv" if wh else "aus")
+    # Die Auktions-Wache haengt an eBay UND an Marktpreisen: ohne
+    # Vergleichswert kann sie nichts melden, und das soll man vorher sehen.
+    auction_ready = s.auction_watch_enabled and eb
+    if not s.auction_watch_enabled:
+        line(OFF, "Auktions-Wache", "aus (AUCTION_WATCH_ENABLED=false)")
+    elif not eb:
+        line(MISS, "Auktions-Wache", "braucht eBay Browse")
+    elif not s.pokewallet_api_key:
+        line(MISS, "Auktions-Wache",
+             "braucht POKEWALLET_API_KEY — ohne Vergleichswert kein Alarm")
+    else:
+        line(OK, "Auktions-Wache",
+             f"{s.auction_window_minutes}min-Fenster, Alarm "
+             f"{s.auction_alert_lead_minutes}min vor Schluss ab "
+             f"{s.auction_min_discount_pct}% unter Marktpreis")
     active_sources = sum((ka, eb, wh))
 
     print("\nBewertung:")

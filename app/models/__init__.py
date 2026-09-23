@@ -17,6 +17,7 @@ from app.models.enums import (
     Verdict,
 )
 from app.models.listing import Listing
+from app.models.auction_watch import AuctionWatch
 from app.models.market_snapshot import MarketSnapshot
 from app.models.purchase import Purchase, Sale
 from app.models.reference_comp import ReferenceComp
@@ -32,6 +33,7 @@ __all__ = [
     "Decision",
     "Enrichment",
     "Listing",
+    "AuctionWatch",
     "MarketSnapshot",
     "Purchase",
     "Sale",

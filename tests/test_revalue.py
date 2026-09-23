@@ -168,3 +168,69 @@ def test_says_so_when_nothing_in_the_pool_resolves(patched_scope, db, monkeypatc
     )
     run(limit=5)
     assert "Kein auflösbarer Kandidat" in capsys.readouterr().out
+
+
+def test_discarding_auto_valuations_leaves_manual_work_alone(patched_scope, db):
+    """Nach einer Resolver-Korrektur muessen alte Automatik-Werte weg.
+
+    Im Feed stand sonst tagelang ein falsch aufgeloester Wert. Von Hand
+    identifizierte Karten sind aber Arbeit des Betreibers — die wirft die
+    Maschine nicht weg.
+    """
+    from datetime import datetime, timezone
+
+    from app.models.candidate_card import CandidateCard
+    from app.models.card import Card, Variant
+    from app.models.enums import Condition, Language, Printing, ReferenceSource
+    from app.models.reference_value import ReferenceValue
+    from app.revalue import discard_auto_valuations
+
+    card = Card(name="Glurak")
+    db.add(card)
+    db.flush()
+    variant = Variant(
+        card_id=card.id,
+        language=Language.DE,
+        condition=Condition.PLAYED,
+        printing=Printing.HOLO,
+    )
+    db.add(variant)
+    db.flush()
+    rv = ReferenceValue(
+        variant_id=variant.id,
+        value=Decimal("100"),
+        currency="EUR",
+        source=ReferenceSource.SOLDCOMPS,
+        cascade_level=1,
+        sample_size=10,
+        is_weak=False,
+    )
+    db.add(rv)
+    db.flush()
+
+    auto = _candidate(db, "Automatisch bewertet 4/102", ext="auto1")
+    auto.reference_value_id = rv.id
+    auto.estimated_profit = Decimal("50")
+    auto.valuation_attempted_at = datetime.now(timezone.utc)
+    db.add(CandidateCard(candidate_id=auto.id, variant_id=variant.id, source="auto"))
+
+    manual = _candidate(db, "Von Hand bewertet 2/102", ext="man1")
+    manual.reference_value_id = rv.id
+    manual.estimated_profit = Decimal("20")
+    db.add(
+        CandidateCard(candidate_id=manual.id, variant_id=variant.id, source="manual")
+    )
+    db.commit()
+
+    assert discard_auto_valuations() == 1
+
+    db.expire_all()
+    auto = db.get(Candidate, auto.id)
+    manual = db.get(Candidate, manual.id)
+    assert auto.reference_value_id is None
+    assert auto.estimated_profit is None
+    assert auto.valuation_attempted_at is None
+    assert manual.reference_value_id == rv.id      # Handarbeit bleibt
+    assert manual.estimated_profit == Decimal("20")
+    remaining = db.query(CandidateCard).all()
+    assert len(remaining) == 1 and remaining[0].source == "manual"

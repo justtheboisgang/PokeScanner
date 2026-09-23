@@ -128,6 +128,26 @@ class Settings(BaseSettings):
         default="https://api.ebay.com", alias="EBAY_BROWSE_BASE_URL"
     )
     ebay_browse_limit: int = Field(default=50, alias="EBAY_BROWSE_LIMIT")
+
+    # --- Auktions-Wache -----------------------------------------------------
+    # Eine Auktion ist erst kurz vor Schluss eine Information: bis dahin steigt
+    # der Preis. Deshalb werden Auktionen frueh erfasst und bewertet, aber erst
+    # kurz vor Ablauf gemeldet — und nur, wenn das AKTUELLE Gebot dann noch
+    # deutlich unter dem Vergleichswert liegt.
+    auction_watch_enabled: bool = Field(default=True, alias="AUCTION_WATCH_ENABLED")
+    # Wie weit voraus nach endenden Auktionen gesucht wird.
+    auction_window_minutes: int = Field(default=45, alias="AUCTION_WINDOW_MINUTES")
+    # Wie viele Minuten vor Ablauf der Alarm rausgeht. Zu frueh: der Preis
+    # steigt noch. Zu spaet: du kommst nicht mehr zum Bieten.
+    auction_alert_lead_minutes: int = Field(
+        default=5, alias="AUCTION_ALERT_LEAD_MINUTES"
+    )
+    # Ab welchem Abstand zum Vergleichswert gemeldet wird (Prozent).
+    auction_min_discount_pct: int = Field(default=20, alias="AUCTION_MIN_DISCOUNT_PCT")
+    # Takt der Suche nach neuen bald endenden Auktionen.
+    auction_scan_interval_minutes: int = Field(
+        default=10, alias="AUCTION_SCAN_INTERVAL_MINUTES"
+    )
     # Ohne sort liefert eBay nach RELEVANZ ("Best Match"). Ein brandneues
     # Angebot, das relevanzmaessig hinten liegt, taucht dann in den obersten
     # Treffern nie auf — der Scanner saehe es nie. Fuer einen Schnaeppchenjaeger

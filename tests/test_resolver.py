@@ -974,3 +974,93 @@ def test_trading_card_game_is_not_a_trade_offer():
     assert looks_like_sealed_product(
         "Pokemon Trading Card Game Glurak Holo Base Set Deutsch"
     ) is False
+
+
+# --- Internationale Titel ---------------------------------------------------
+#
+# Ein einzelner Verkaeufer fuellte den Feed mit diesem Format:
+#   "Malamar - VMAX Climax - Near Mint - Japanisch"
+#   "Fletchling - XY Trainer Kit: Latias - leicht bespielt - Italienisch"
+# Gesucht wurde aber nur auf Deutsch und Englisch.
+
+
+def test_card_language_is_read_from_the_title():
+    from app.pricing.resolver import card_language_from_title as lang
+
+    assert lang("Malamar - VMAX Climax - Near Mint - Japanisch") == "ja"
+    assert lang("Fletchling - XY Trainer Kit - bespielt - Italienisch") == "it"
+    assert lang("Pokemon Karte: Sophora 194/198 Eiskönigin Französisch") == "fr"
+    assert lang("Glurak Holo 4/102 Base Set Deutsch") == "de"
+    assert lang("Charizard 4/102 Base Set english") == "en"
+    assert lang("Pokemon Glurak 4/102 Holo") is None
+
+
+def test_set_name_is_found_in_another_language():
+    """Japanische Set-Namen stehen nicht im deutschen Katalog."""
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if "/ja/sets/" in path:
+            return httpx.Response(200, json={
+                "id": "s8b",
+                "cards": [{"id": "s8b-97", "localId": "97", "name": "Malamar"}],
+            })
+        if path.endswith("/ja/sets"):
+            return httpx.Response(200, json=[{"id": "s8b", "name": "VMAX Climax"}])
+        return httpx.Response(200, json=[])
+
+    r = SingleCardTitleResolver(_tcgdex(handler))
+    trace: list[str] = []
+    resolved = r.resolve("Malamar - VMAX Climax - Near Mint - Japanisch", None,
+                         trace=trace)
+    assert resolved is not None, trace
+    assert resolved.tcgdex_id == "s8b-97"
+    assert resolved.card_language == "ja"
+
+
+def test_an_italian_card_is_identified_but_not_valued(db):
+    """Erkennen ja, bewerten nein — es gibt keinen Faktor fuer Italienisch."""
+    from app.models.enums import Channel as Ch
+
+    lst = Listing(
+        channel=Ch.EBAY_BROWSE,
+        external_id="it1",
+        title="Oranguru 123/159 Crown Zenith Near Mint Italiano",
+        price=Decimal("40"),
+        currency="EUR",
+        seller_type=SellerType.PRIVATE,
+        images=[],
+    )
+    db.add(lst)
+    db.flush()
+    cand = Candidate(listing_id=lst.id, matched_search_term="pokemon sammlung")
+    db.add(cand)
+    db.flush()
+
+    resolved = ResolvedCard(
+        "swsh12.5-123", "Oranguru", "123/159", Language.DE, Printing.NORMAL,
+        card_language="it",
+    )
+    settings = get_settings().model_copy(update={"soldcomps_api_key": "sc_test"})
+    result = auto_value_candidate(
+        db, cand, resolver=_StubResolver(resolved), settings=settings
+    )
+
+    assert result.total_value_eur is None
+    assert cand.reference_value_id is None
+    # Der Betreiber erfaehrt trotzdem, WELCHE Karte es ist.
+    assert "Oranguru" in cand.valuation_note
+    assert "'it'" in cand.valuation_note
+
+
+def test_german_and_english_cards_are_still_valued(db):
+    """Die Sprachsperre darf den Normalfall nicht treffen."""
+    cand = _candidate(db, price="120")
+    settings = get_settings().model_copy(update={"soldcomps_api_key": "sc_test"})
+    resolved = ResolvedCard(
+        "base1-4", "Glurak", "4/102", Language.DE, Printing.HOLO, card_language="de"
+    )
+    result = auto_value_candidate(
+        db, cand, resolver=_StubResolver(resolved), settings=settings,
+        soldcomps=_soldcomps(), tcgdex=_tcgdex(_one_card_handler({})),
+    )
+    assert result.total_value_eur is not None

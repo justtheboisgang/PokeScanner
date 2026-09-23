@@ -410,6 +410,25 @@ def auto_value_candidate(
         note_unresolvable(candidate, trace)
         return inactive
 
+    # Gate 1b': erkannt ist nicht bewertbar. Fuer italienische, franzoesische
+    # oder japanische Karten gibt es in der Kaskade keinen belastbaren
+    # Sprachfaktor — es gibt nur den einen fuer DE gegenueber EN. Eine solche
+    # Karte wie eine deutsche zu bewerten waere ein erfundener Wert, und zwar
+    # ein zu hoher. Die Karte ist trotzdem identifiziert: der Betreiber sieht
+    # im Feed, WELCHE Karte es ist, und entscheidet selbst.
+    card_lang = getattr(resolved, "card_language", None)
+    if card_lang is not None and card_lang not in ("de", "en"):
+        _mark_attempt(
+            candidate,
+            f"Erkannt als {resolved.name} {resolved.number or ''} — aber "
+            f"Sprache '{card_lang}': dafür gibt es keinen belastbaren "
+            "Vergleichsfaktor, deshalb kein automatischer Wert.",
+        )
+        return EvaluationResult(
+            None, None, False,
+            f"Karte erkannt, aber Sprache '{card_lang}' wird nicht bewertet.",
+        )
+
     # Gate 1c: a lookup costs real money, so skip listings too cheap to yield a
     # worthwhile find — but only where the price actually says something about
     # the card (see _PRICED_AT_MARKET). This is what stops the budget from being

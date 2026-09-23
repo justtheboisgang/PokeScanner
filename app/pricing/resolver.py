@@ -35,6 +35,10 @@ class ResolvedCard:
     number: str | None
     language: Language
     printing: Printing
+    # Die im Titel genannte Kartensprache ("it", "ja", ...). Nur "de" und "en"
+    # lassen sich bewerten — fuer alles andere gibt es keinen belastbaren
+    # Faktor, und einen zu erfinden ist genau das, was hier verboten ist.
+    card_language: str | None = None
 
 
 @runtime_checkable
@@ -391,6 +395,30 @@ def _name_in_title(card_name: str, low_title: str) -> bool:
     return bool(base) and len(base) >= 4 and base in low_title
 
 
+# Sprachen, die TCGdex fuehrt und in denen Titel im Feed auftauchen. Die
+# Reihenfolge ist die Suchreihenfolge: erst die eigene, dann Englisch (viele
+# deutsche Angebote nennen den englischen Namen), dann der Rest.
+_SEARCH_LANGS = ("en", "fr", "it", "ja")
+
+# Woran man die Kartensprache im Titel erkennt.
+_TITLE_LANGS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("de", ("deutsch", "german", "allemand", "tedesco")),
+    ("en", ("englisch", "english", "anglais", "inglese")),
+    ("it", ("italienisch", "italiano", "italian", " ita ", "italien")),
+    ("fr", ("französisch", "franzoesisch", "french", "francais", "français")),
+    ("ja", ("japanisch", "japanese", "japonais", "giapponese", " jap ", " jp ")),
+)
+
+
+def card_language_from_title(text: str) -> str | None:
+    """Welche Sprache die KARTE hat, laut Titel. None = steht nicht da."""
+    low = f" {_flatten(text)} "
+    for code, hints in _TITLE_LANGS:
+        if any(h in low for h in hints):
+            return code
+    return None
+
+
 def _says_german(low: str) -> bool:
     return "deutsch" in low or "german" in low
 
@@ -444,7 +472,12 @@ class SingleCardTitleResolver:
         uebrig, bleibt es unbewertbar.
         """
         flat = _flatten(text)
-        for lang_code in dict.fromkeys([self.lang.value.lower(), "en"]):
+        title_lang = card_language_from_title(text)
+        order = [self.lang.value.lower()]
+        if title_lang and title_lang not in order:
+            order.append(title_lang)
+        order += [c for c in _SEARCH_LANGS if c not in order]
+        for lang_code in dict.fromkeys(order):
             found = [
                 (name, set_id)
                 for name, set_id in self._set_name_index(lang_code)
@@ -551,6 +584,7 @@ class SingleCardTitleResolver:
                     number=card_local_id(card),
                     language=language,
                     printing=_printing_from_title(low),
+                    card_language=card_language_from_title(text),
                 )
             note(
                 "Tor 1b: keine Kartennummer und kein erkennbares Set im Titel "
@@ -605,17 +639,27 @@ class SingleCardTitleResolver:
         matches = search(lang_code)
         resolved_via = lang_code
 
+        # Reihenfolge: eigene Sprache, dann Englisch, dann der Rest. Ein
+        # italienischer Titel nennt "Bulbasaur" nicht auf Deutsch, und ein
+        # japanisches Deck-Set steht nur im japanischen Katalog. Ohne diese
+        # Runde blieb der halbe internationale Feed unerkannt.
+        title_lang = card_language_from_title(text)
+        order = [c for c in (title_lang,) if c and c != lang_code]
+        order += [c for c in _SEARCH_LANGS if c != lang_code and c not in order]
+
         # Very many eBay titles carry the card's ENGLISH name even on the German
         # market ("Growlithe 004/020", "Bulbasaur Base Set"). A German-only
         # search finds nothing for those — Growlithe is "Fukano" in German — so
         # every such listing silently stayed unbewertbar. TCGdex ids are the
         # same in every language, so a second pass in English costs nothing but
         # a free lookup and rescues the whole international half of the feed.
-        if not matches and lang_code != "en":
-            note("  nichts auf Deutsch gefunden — zweiter Versuch auf Englisch")
-            matches = search("en")
+        for alt in order:
             if matches:
-                resolved_via = "en"
+                break
+            note(f"  nichts in '{lang_code}' gefunden — Versuch auf '{alt}'")
+            matches = search(alt)
+            if matches:
+                resolved_via = alt
 
         # The denominator narrows several same-numbered cards down to the set
         # that actually has that many cards.
@@ -702,4 +746,5 @@ class SingleCardTitleResolver:
             ),
             language=language,
             printing=_printing_from_title(low),
+            card_language=card_language_from_title(text),
         )

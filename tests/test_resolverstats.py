@@ -122,3 +122,17 @@ def test_a_card_number_beats_a_product_word(patched_scope, db, monkeypatch, caps
     out = capsys.readouterr().out
     assert recognized == 1
     assert "Zubehoer / versiegelt  :    0" in out
+
+
+def test_hits_can_be_listed_for_a_spot_check(patched_scope, db, monkeypatch, capsys):
+    """Die Quote sagt nicht, ob RICHTIG erkannt wurde — dafuer die Trefferliste."""
+    _listing(db, "Glurak Holo 4/102 Base Set Deutsch", "h1")
+
+    monkeypatch.setattr(
+        "app.resolverstats.TCGdexClient",
+        lambda *a, **kw: _tcgdex([{"id": "base1-4", "localId": "4", "name": "Glurak"}]),
+    )
+    run(limit=10, show_hits=True)
+    out = capsys.readouterr().out
+    assert "Erkannt als" in out
+    assert "Glurak 4/102 [base1-4]" in out

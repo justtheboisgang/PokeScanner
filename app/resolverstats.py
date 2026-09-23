@@ -66,13 +66,15 @@ def _pct(part: int, whole: int) -> str:
     return f"{(part / whole * 100):.0f}%" if whole else "—"
 
 
-def run(limit: int = 150, show_titles: bool = False) -> int:
+def run(limit: int = 150, show_titles: bool = False,
+        show_hits: bool = False) -> int:
     settings = get_settings()
     lang = Language.DE if settings.tcgdex_primary_lang == "de" else Language.EN
     resolver = SingleCardTitleResolver(TCGdexClient(), lang=lang)
 
     bundles = reprints = products = 0
     singles: list[tuple[str, bool, str]] = []  # (Titel, erkannt, Grund)
+    hits: list[tuple[str, str]] = []           # (Titel, worauf aufgeloest)
 
     with session_scope() as session:
         listings = session.scalars(
@@ -108,6 +110,11 @@ def run(limit: int = 150, show_titles: bool = False) -> int:
                 singles.append((title, False, f"Fehler: {exc!r}"))
                 continue
             singles.append((title, resolved is not None, _bucket(trace)))
+            if resolved is not None:
+                hits.append(
+                    (title, f"{resolved.name} {resolved.number or ''} "
+                            f"[{resolved.tcgdex_id}]")
+                )
 
     recognized = sum(1 for _, ok, _ in singles if ok)
     measured = len(singles)
@@ -129,6 +136,15 @@ def run(limit: int = 150, show_titles: bool = False) -> int:
         for reason, count in misses.most_common():
             print(f"  {count:>4}  {reason}")
 
+    if show_hits:
+        # Die Quote sagt, WIE VIELE aufgeloest wurden — nicht, ob richtig.
+        # Ein falsch aufgeloester Titel erfindet einen Wert, und das faellt
+        # nur auf, wenn jemand draufschaut. Deshalb diese Liste.
+        print("\nErkannt als — bitte stichprobenartig pruefen:")
+        for title, target in hits:
+            print(f"  {title[:78]}")
+            print(f"      -> {target}")
+
     if show_titles:
         print("\nNicht erkannte Titel:")
         for title, ok, reason in singles:
@@ -149,8 +165,11 @@ def main(argv: list[str] | None = None) -> None:
                         help="Wie viele Inserate pruefen (Default 150)")
     parser.add_argument("--zeige-titel", action="store_true", dest="show_titles",
                         help="Jeden nicht erkannten Titel mit Grund auflisten")
+    parser.add_argument("--zeige-treffer", action="store_true", dest="show_hits",
+                        help="Zeigen, ALS WAS erkannt wurde (Gegenprobe zur Quote)")
     args = parser.parse_args(argv if argv is not None else sys.argv[1:])
-    run(limit=max(1, args.limit), show_titles=args.show_titles)
+    run(limit=max(1, args.limit), show_titles=args.show_titles,
+        show_hits=args.show_hits)
 
 
 if __name__ == "__main__":

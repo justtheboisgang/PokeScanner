@@ -191,15 +191,29 @@ def numbers_match(card_local: object, wanted: str) -> bool:
     "4/102" auf eine Trainer-Galerie-Karte "TG04" passen und einen falschen
     Wert erfinden.
     """
+    return number_match_kind(card_local, wanted) is not None
+
+
+def number_match_kind(card_local: object, wanted: str) -> str | None:
+    """None = kein Treffer, "exakt" = Code stimmt ganz, "lose" = nur die Zahl.
+
+    Der Unterschied entscheidet spaeter ueber die Sicherheitsabfrage: ein
+    loser Treffer ("XY122" im Titel, "122" im Katalog) hat im Live-Lauf aus
+    "Turtok EX XY122" einen "Rotom-Pokédex" gemacht. Bei so einem Treffer muss
+    zusaetzlich der Kartenname im Titel stehen.
+    """
     c_letters, c_digits = _split_code(str(card_local))
     w_letters, w_digits = _split_code(wanted)
     if not c_digits or not w_digits:
-        return str(card_local).strip().upper() == wanted.strip().upper()
+        same = str(card_local).strip().upper() == wanted.strip().upper()
+        return "exakt" if same else None
     if c_digits != w_digits:
-        return False
+        return None
     if c_letters == w_letters:
-        return True
-    return bool(w_letters) and not c_letters
+        return "exakt"
+    if w_letters and not c_letters:
+        return "lose"
+    return None
 
 # Jubilee/anniversary reprints carry the ORIGINAL's numbering but are worth a
 # fraction of it. Resolving "Turtok 2/102 ... Celebration 25. Jubiläum" to the
@@ -236,6 +250,15 @@ _PRODUCT_SUBSTRINGS = (
     "zur auswahl", "wähle", "waehle", "aussuchen", "auswählen", "auswaehlen",
     "was du willst", "karte wählen", "karte waehlen",
 )
+# Angebote aus dem VIDEOSPIEL Pokemon GO: "Shiny Glurak | Pokémon GO | Trade".
+# Da wird ein Spiel-Pokemon getauscht, keine Sammelkarte — und weil "Pokémon GO"
+# zugleich ein Kartenset ist, bekamen solche Anzeigen im Live-Lauf einen
+# Kartenwert angehaengt. Greift nur bei Titeln ohne Kartennummer.
+_GAME_TRADE_RE = re.compile(
+    r"\b(?:tausch|tausche|tauschen|trade|trades|trading\s+(?!card)|"
+    r"spielstand|account|accounts)\b",
+    re.IGNORECASE,
+)
 _PRODUCT_WORDS = re.compile(
     r"\b(?:etb|ttb|upc|tin|pack|packung|päckchen|paeckchen|box|boxen|tüte|"
     r"tuete|tüten|tueten|umschlag|umschläge|spiel|spiele)\b",
@@ -261,6 +284,7 @@ def looks_like_sealed_product(text: str) -> bool:
         any(h in low for h in _PRODUCT_SUBSTRINGS)
         or bool(_PRODUCT_WORDS.search(low))
         or bool(_QUANTITY_RE.search(low))
+        or bool(_GAME_TRADE_RE.search(low))
     )
 
 
@@ -554,8 +578,8 @@ class SingleCardTitleResolver:
 
         lang_code = "de" if self.lang == Language.DE else "en"
 
-        def search(lang: str) -> dict[str, dict]:
-            found: dict[str, dict] = {}
+        def search(lang: str) -> dict[str, tuple[dict, str]]:
+            found: dict[str, tuple[dict, str]] = {}
             for token in tokens:
                 try:
                     results = self.tcgdex.search_cards(token, lang)
@@ -570,10 +594,12 @@ class SingleCardTitleResolver:
                     cid = card.get("id")
                     if not cid:
                         continue
-                    if (
-                        local := card_local_id(card)
-                    ) is not None and numbers_match(local, local_id):
-                        found[str(cid)] = card
+                    local = card_local_id(card)
+                    if local is None:
+                        continue
+                    kind = number_match_kind(local, local_id)
+                    if kind is not None:
+                        found[str(cid)] = (card, kind)
             return found
 
         matches = search(lang_code)
@@ -596,8 +622,8 @@ class SingleCardTitleResolver:
         if len(matches) > 1 and set_size is not None:
             sizes = self._set_sizes(lang_code)
             narrowed = {
-                cid: card
-                for cid, card in matches.items()
+                cid: entry
+                for cid, entry in matches.items()
                 if sizes.get(str(cid).rsplit("-", 1)[0]) == set_size
             }
             if len(narrowed) == 1:
@@ -617,14 +643,14 @@ class SingleCardTitleResolver:
         # ihre eigenen Nebentreffer als Mehrdeutigkeit wieder weg.
         if len(matches) > 1:
             by_name = {
-                cid: c
-                for cid, c in matches.items()
-                if _name_in_title(str(c.get("name") or ""), low)
+                cid: entry
+                for cid, entry in matches.items()
+                if _name_in_title(str(entry[0].get("name") or ""), low)
             }
             if len(by_name) == 1:
                 note(
                     f"Tor 2: {len(matches)} Kandidaten — nur "
-                    f"{next(iter(by_name.values())).get('name')} steht im Titel"
+                    f"{next(iter(by_name.values()))[0].get('name')} steht im Titel"
                 )
                 matches = by_name
 
@@ -638,10 +664,18 @@ class SingleCardTitleResolver:
             )
             return None
 
-        card = next(iter(matches.values()))
+        card, match_kind = next(iter(matches.values()))
         name = card.get("name")
         if not name:
             note("Tor 2: Treffer ohne Namen -> unbewertbar")
+            return None
+        if match_kind == "lose" and not _name_in_title(str(name), low):
+            # Nur die Zahl hat gepasst, der Name steht nicht im Titel. Genau so
+            # wurde aus "Turtok EX XY122" ein "Rotom-Pokédex 122". Zu duenn.
+            note(
+                f"Tor 2: nur die Zahl passt ({name}) — Name steht nicht im "
+                "Titel -> unbewertbar"
+            )
             return None
         note(f"Aufgeloest: {name} ({card['id']})")
         # Which language actually found the card is evidence in itself: a title

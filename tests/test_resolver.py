@@ -915,3 +915,62 @@ def test_a_card_number_outranks_a_product_word():
     cards = [{"id": "base1-4", "localId": "4", "name": "Glurak"}]
     r = SingleCardTitleResolver(_tcgdex(_one_card_handler(cards)))
     assert r.resolve("Glurak 4/102 Holo Deutsch aus Booster gezogen", None) is not None
+
+
+# --- Aus der Stichprobe: zwei echte Fehlgriffe -----------------------------
+
+
+def test_a_loose_number_match_needs_the_name_in_the_title():
+    """Live-Fehler: "Turtok EX XY122" wurde zu "Rotom-Pokédex 122".
+
+    Nur die Zahl hatte gepasst — der Kartencode "XY" fehlte im Katalog und der
+    Name stand nirgends im Titel. Zu duenn fuer einen Wert.
+    """
+    cards = [
+        {
+            "id": "sm3-122",
+            "localId": "122",
+            "name": "Rotom-Pokédex: Pokémon-Sucher-Modus",
+        }
+    ]
+    r = SingleCardTitleResolver(_tcgdex(_one_card_handler(cards)))
+    trace: list[str] = []
+    assert r.resolve(
+        "Pokémon TCG Turtok EX XY122 Holo Deutsch 180 KP Ultra Rare XY",
+        None,
+        trace=trace,
+    ) is None
+    assert any("nur die Zahl passt" in line for line in trace), trace
+
+
+def test_a_loose_number_match_is_kept_when_the_name_fits():
+    """Bei echten Promos bleibt der lockere Abgleich erlaubt."""
+    cards = [{"id": "dpp-45", "localId": "45", "name": "Glurak G Lv.X"}]
+    r = SingleCardTitleResolver(_tcgdex(_one_card_handler(cards)))
+    resolved = r.resolve("Glurak G Lv.X DP45 Pokémon TCG Deutsch Holo", None)
+    assert resolved is not None
+    assert resolved.tcgdex_id == "dpp-45"
+
+
+def test_pokemon_go_game_trades_are_not_cards():
+    """Live-Fehler: Spiel-Tauschangebote bekamen einen Kartenwert.
+
+    "Pokémon GO" ist zugleich ein Kartenset — deshalb fand der Set-Weg dort
+    brav eine Karte. Getauscht wird aber ein Pokemon im Videospiel.
+    """
+    from app.pricing.resolver import looks_like_sealed_product
+
+    for title in (
+        "🌿 Shiny Bisaflor ✨ Pokémon GO – Venusaur – Shiny Tausch",
+        "✨ Shiny Glurak mit Brille | Pokémon GO | Event | Charizard | Trade",
+    ):
+        assert looks_like_sealed_product(title) is True, title
+
+
+def test_trading_card_game_is_not_a_trade_offer():
+    """"Trading Card Game" darf nicht als Tauschangebot gelten."""
+    from app.pricing.resolver import looks_like_sealed_product
+
+    assert looks_like_sealed_product(
+        "Pokemon Trading Card Game Glurak Holo Base Set Deutsch"
+    ) is False

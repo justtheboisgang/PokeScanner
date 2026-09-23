@@ -4,29 +4,48 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Absichtlich reines CSS statt @apply.
+   @apply loest Klassennamen ueber die Tailwind-Konfiguration auf — und die
+   liest der laufende Dev-Server nur beim Start. Aendert man die Palette,
+   bricht der Server mit "bg-ink-950 class does not exist" ab, obwohl alles
+   richtig ist. Mit festen Werten kann das nicht passieren; die Tokens in
+   tailwind.config.js gelten unveraendert fuer alle Klassen im JSX. */
+
 :root {
   color-scheme: dark;
+  --ink-950: #0a0b0d;
+  --ink-800: #191d22;
+  --paper: #e7e9ec;
+  --paper-dim: #5b636e;
 }
 
 body {
-  @apply bg-ink-950 text-paper antialiased;
+  background-color: var(--ink-950);
+  color: var(--paper);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   font-feature-settings: "cv02", "cv03", "cv04", "cv11";
 }
 
-/* Zahlen laufen immer tabellarisch: gleiche Breite je Ziffer, damit Spalten
-   stehen. Ohne das "zappeln" Preise beim Aktualisieren. */
+/* Zahlen laufen tabellarisch: gleiche Breite je Ziffer, damit Spalten stehen.
+   Ohne das "zappeln" Preise beim Aktualisieren. */
 .tnum {
   font-variant-numeric: tabular-nums;
-  @apply font-mono;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
 }
 
 /* Eine feine Linie statt Schatten. Karten mit Schlagschatten sind das
    sicherste Erkennungsmerkmal einer Baukasten-Oberflaeche. */
 .rule {
-  @apply border-b border-ink-800;
+  border-bottom: 1px solid var(--ink-800);
 }
 
 /* Spaltenkoepfe: klein, weit gesperrt, leise. */
 .colhead {
-  @apply text-2xs font-medium uppercase tracking-widest text-paper-dim;
+  font-size: 0.6875rem;
+  line-height: 1rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--paper-dim);
 }
